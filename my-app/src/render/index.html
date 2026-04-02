@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RestaurantOS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles/main.css" />
+  <link rel="stylesheet" href="styles/components.css" />
+  <link rel="stylesheet" href="styles/screens.css" />
+</head>
+<body>
+
+  <!-- ── SIDEBAR ── -->
+  <aside>
+    <div class="logo">
+      <div class="logo-mark">RestaurantOS</div>
+      <div class="logo-sub">Management System</div>
+    </div>
+
+    <nav>
+      <div class="nav-section">Chính</div>
+      <div class="nav-item active" data-screen="dashboard">
+        <span class="nav-icon">📊</span> Dashboard
+      </div>
+      <div class="nav-item" data-screen="order">
+        <span class="nav-icon">🧾</span> Gọi món
+        <span class="nav-badge">3</span>
+      </div>
+
+      <div class="nav-section">Quản lý</div>
+      <div class="nav-item" data-screen="tables">
+        <span class="nav-icon">🪑</span> Bàn
+      </div>
+      <div class="nav-item" data-screen="menu">
+        <span class="nav-icon">🍽️</span> Thực đơn
+      </div>
+      <div class="nav-item" data-screen="staff">
+        <span class="nav-icon">👥</span> Nhân viên
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-card">
+        <div class="avatar">A</div>
+        <div>
+          <div class="user-name">Admin</div>
+          <div class="user-role">Quản lý</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <main>
+    <header>
+      <div>
+        <div class="page-title" id="pageTitle">Dashboard</div>
+        <div class="page-sub"  id="pageSub">Tổng quan hôm nay</div>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-ghost"   id="headerBtn2">Xuất báo cáo</button>
+        <button class="btn btn-primary" id="headerBtn">+ Thêm mới</button>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- Dashboard -->
+      <div class="screen active" id="screen-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Doanh thu hôm nay</div>
+            <div class="stat-value">4.2M</div>
+            <div class="stat-delta up">↑ 12% so với hôm qua</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Số đơn</div>
+            <div class="stat-value">38</div>
+            <div class="stat-delta up">↑ 5 đơn</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Bàn đang phục vụ</div>
+            <div class="stat-value">7<span style="font-size:16px;color:var(--muted)">/15</span></div>
+            <div class="stat-delta muted">8 bàn trống</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Nhân viên ca này</div>
+            <div class="stat-value">6</div>
+            <div class="stat-delta muted">2 bếp · 4 phục vụ</div>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-title">Đơn gần đây <span>Xem tất cả →</span></div>
+            <div class="order-list" id="recentOrders"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Sơ đồ bàn <span>15 bàn</span></div>
+            <div class="table-grid" id="tableGrid"></div>
+            <div class="table-legend" id="tableLegend"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Menu -->
+      <div class="screen" id="screen-menu">
+        <div class="menu-toolbar">
+          <input class="search-box" placeholder="🔍  Tìm món ăn..." id="menuSearch" />
+          <button class="btn btn-ghost filter-btn active" data-cat="all">Tất cả</button>
+          <button class="btn btn-ghost filter-btn" data-cat="main">Món chính</button>
+          <button class="btn btn-ghost filter-btn" data-cat="starter">Khai vị</button>
+          <button class="btn btn-ghost filter-btn" data-cat="drink">Đồ uống</button>
+        </div>
+        <div class="menu-grid" id="menuGrid"></div>
+      </div>
+
+      <!-- Tables -->
+      <div class="screen" id="screen-tables">
+        <div class="tables-big-grid" id="tablesGrid"></div>
+      </div>
+
+      <!-- Staff -->
+      <div class="screen" id="screen-staff">
+        <div class="card">
+          <table class="staff-table">
+            <thead>
+              <tr>
+                <th>Nhân viên</th>
+                <th>Chức vụ</th>
+                <th>Ca làm</th>
+                <th>SĐT</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody id="staffTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Order -->
+      <div class="screen" id="screen-order">
+        <div class="order-layout">
+          <div class="order-menu">
+            <div class="order-table-label">Bàn đang chọn: <strong>Bàn 5</strong></div>
+            <div class="order-mini-grid" id="orderMenuGrid"></div>
+          </div>
+          <div class="card bill-panel">
+            <div class="bill-header">Hoá đơn bàn 5</div>
+            <div class="bill-items" id="billItems">
+              <div class="bill-empty">Chọn món để thêm vào đơn</div>
+            </div>
+            <div class="bill-total">
+              <span>Tổng cộng</span>
+              <span class="bill-total-num" id="billTotal">0đ</span>
+            </div>
+            <button class="btn btn-primary btn-full" id="submitOrderBtn">Xác nhận đơn →</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- .content -->
+  </main>
+
+  <!-- JS Modules (type="module" để dùng import/export) -->
+  <script type="module" src="js/navigation.js"></script>
+  <script type="module" src="js/order.js"></script>
+
+</body>
+</html>

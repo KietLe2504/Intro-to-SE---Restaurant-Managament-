@@ -1,0 +1,230 @@
+/* ─────────────────────────────────────────
+   screens.css  —  Styles riêng từng màn hình
+   Mỗi section = 1 màn hình
+───────────────────────────────────────── */
+
+/* ══ DASHBOARD ══ */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .dash-grid {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 14px;
+  }
+  
+  /* Recent orders list */
+  .order-list { display: flex; flex-direction: column; gap: 8px; }
+  .order-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .order-id    { font-family: var(--font-display); font-weight: 600; color: var(--accent); min-width: 44px; }
+  .order-table { color: var(--muted); min-width: 50px; }
+  .order-items { flex: 1; }
+  .order-price { font-weight: 500; min-width: 70px; text-align: right; }
+  
+  /* Table mini-grid in dashboard */
+  .table-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+  .table-dot {
+    aspect-ratio: 1;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s;
+    border: 1px solid transparent;
+  }
+  .table-dot:hover { transform: scale(1.05); }
+  .table-dot .tnum { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+  .t-free     { background: rgba(34,197,94,0.1);  border-color: rgba(34,197,94,0.3);  color: var(--green);  }
+  .t-busy     { background: rgba(249,115,22,0.1); border-color: rgba(249,115,22,0.3); color: var(--accent); }
+  .t-reserved { background: rgba(96,165,250,0.1); border-color: rgba(96,165,250,0.3); color: var(--blue);   }
+  .table-legend { display: flex; gap: 10px; margin-top: 14px; font-size: 11px; }
+  
+  /* ══ MENU ══ */
+  .menu-toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    align-items: center;
+  }
+  .menu-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .menu-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.2s, transform 0.15s;
+    cursor: pointer;
+  }
+  .menu-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .menu-img {
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    background: var(--surface2);
+  }
+  .menu-info  { padding: 12px; }
+  .menu-name  { font-weight: 500; font-size: 14px; margin-bottom: 4px; }
+  .menu-cat   { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .menu-footer{ display: flex; justify-content: space-between; align-items: center; }
+  .menu-price { font-family: var(--font-display); font-weight: 700; font-size: 16px; color: var(--accent); }
+  .menu-avail { font-size: 11px; padding: 2px 8px; border-radius: 20px; }
+  .avail-yes  { background: rgba(34,197,94,0.12);  color: var(--green); }
+  .avail-no   { background: rgba(248,113,113,0.12); color: var(--red);   }
+  
+  /* ══ TABLES ══ */
+  .tables-big-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .table-card:hover { transform: translateY(-2px); }
+  .tc-free     { border-color: rgba(34,197,94,0.4);  }
+  .tc-busy     { border-color: rgba(249,115,22,0.4); }
+  .tc-reserved { border-color: rgba(96,165,250,0.4); }
+  .table-card-num   { font-family: var(--font-display); font-size: 26px; font-weight: 800; margin-bottom: 6px; }
+  .table-card-seats { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .table-card-status{ font-size: 12px; font-weight: 500; }
+  .tf  { color: var(--green);  }
+  .tb  { color: var(--accent); }
+  .tr2 { color: var(--blue);   }
+  
+  /* ══ STAFF ══ */
+  .staff-table { width: 100%; border-collapse: collapse; }
+  .staff-table th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .staff-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .staff-table tr:last-child td { border-bottom: none; }
+  .staff-table tr:hover td { background: var(--surface2); }
+  .staff-name {
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .s-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+  
+  /* ══ ORDER / GỌI MÓN ══ */
+  .order-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 14px;
+    height: calc(100vh - 170px);
+  }
+  .order-menu { overflow-y: auto; }
+  .order-menu::-webkit-scrollbar { width: 3px; }
+  .order-menu::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .order-table-label { margin-bottom: 12px; font-size: 13px; color: var(--muted); }
+  .order-table-label strong { color: var(--accent); }
+  
+  .order-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .order-mini-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    transition: border-color 0.15s;
+  }
+  .order-mini-card:hover { border-color: var(--accent); }
+  .order-mini-emoji { font-size: 26px; }
+  .order-mini-name  { font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+  .order-mini-price { font-size: 12px; color: var(--accent); font-weight: 600; }
+  
+  /* Bill panel */
+  .bill-panel   { display: flex; flex-direction: column; }
+  .bill-header  { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .bill-items   { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .bill-empty   { color: var(--muted); font-size: 13px; text-align: center; padding: 20px 0; }
+  .bill-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .bill-item-name  { flex: 1; }
+  .bill-item-qty {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .bill-item-qty:hover { border-color: var(--accent); color: var(--accent); }
+  .bill-item-price { min-width: 60px; text-align: right; font-weight: 500; }
+  .bill-total {
+    display: flex;
+    justify-content: space-between;
+    font-size: 15px;
+    font-weight: 600;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .bill-total-num {
+    font-family: var(--font-display);
+    color: var(--accent);
+    font-size: 18px;
+  }
