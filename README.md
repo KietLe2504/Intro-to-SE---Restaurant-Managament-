@@ -312,3 +312,332 @@ changeQty('Bò lúc lắc', -1)
 | `tables` | `Array<Object>` | Danh sách 15 bàn với trạng thái và số chỗ |
 | `menuItems` | `Array<Object>` | Danh sách món ăn với giá, danh mục và trạng thái còn hàng |
 | `staff` | `Array<Object>` | Danh sách nhân viên với ca làm và trạng thái |
+# RestaurantOS — Project Documentation
+
+## Project Tree
+
+```
+my-app/
+├── electron/
+│   ├── main.ts                        # Khởi động app, tạo cửa sổ Electron
+│   └── preload.ts                     # Bridge giữa Electron và renderer
+│
+├── src/
+│   └── render/
+│       ├── index.html                 # HTML shell chính
+│       │
+│       ├── styles/
+│       │   ├── main.css               # CSS variables, reset, sidebar, layout
+│       │   ├── components.css         # Button, badge, card, search box
+│       │   └── screens.css            # Style riêng từng màn hình
+│       │
+│       └── js/
+│           ├── data.js                # Toàn bộ dữ liệu mẫu (export only)
+│           ├── navigation.js          # Điều hướng + render UI
+│           └── order.js               # Logic màn hình gọi món / hoá đơn
+│
+├── vite.config.ts
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+---
+
+## Function Tree
+
+```
+js/
+├── data.js
+│   ├── export recentOrders[]
+│   ├── export tables[]
+│   ├── export menuItems[]
+│   └── export staff[]
+│
+├── navigation.js
+│   ├── showScreen(name)
+│   ├── renderRecentOrders()
+│   ├── renderTableMiniGrid()
+│   ├── renderMenuGrid(filter?)
+│   ├── renderTablesGrid()
+│   ├── renderStaffTable()
+│   ├── initMenuFilters()
+│   └── initNavigation()
+│
+└── order.js
+    ├── [state] bill {}
+    ├── addToBill(name, price)
+    ├── changeQty(name, delta)
+    ├── renderBill()
+    ├── renderOrderMenu()
+    └── submitOrder()
+```
+
+---
+
+## data.js
+
+File này chỉ export dữ liệu tĩnh. Không chứa hàm nào.  
+Khi kết nối API thật, chỉ cần sửa file này — các file khác không thay đổi.
+
+### Exports
+
+| Tên | Kiểu | Mô tả |
+|---|---|---|
+| `recentOrders` | `Order[]` | Danh sách đơn gần đây hiển thị trên Dashboard |
+| `tables` | `Table[]` | Danh sách 15 bàn với trạng thái và số chỗ ngồi |
+| `menuItems` | `MenuItem[]` | Danh sách món ăn với giá, danh mục, trạng thái còn hàng |
+| `staff` | `StaffMember[]` | Danh sách nhân viên với ca làm và trạng thái |
+
+### Kiểu dữ liệu (Types)
+
+```js
+Order {
+  id:     string   // Mã đơn, VD: '#038'
+  table:  string   // Tên bàn, VD: 'Bàn 5'
+  items:  string   // Tên các món, cách nhau bởi dấu phẩy
+  price:  string   // Tổng tiền đã format, VD: '285,000đ'
+  status: string   // CSS class: 's-done' | 's-cooking' | 's-waiting'
+  label:  string   // Nhãn hiển thị, VD: 'Đang nấu'
+}
+
+Table {
+  num:    number   // Số bàn
+  seats:  number   // Số chỗ ngồi
+  status: string   // 'free' | 'busy' | 'reserved'
+  label:  string   // Nhãn tiếng Việt, VD: 'Trống'
+  note:   string   // Ghi chú thêm, VD: '19:00' (giờ đặt trước)
+}
+
+MenuItem {
+  name:      string   // Tên món
+  cat:       string   // 'main' | 'starter' | 'drink'
+  emoji:     string   // Icon emoji hiển thị trên card
+  price:     number   // Giá (VNĐ)
+  available: boolean  // Còn hàng hay không
+}
+
+StaffMember {
+  name:        string   // Họ tên đầy đủ
+  role:        string   // Chức vụ
+  shift:       string   // Ca làm, VD: '08:00 – 16:00'
+  phone:       string   // Số điện thoại
+  status:      string   // CSS class: 's-done' | 's-waiting'
+  statusLabel: string   // Nhãn hiển thị, VD: 'Đang làm'
+  color:       string   // Màu nền avatar (hex), VD: '#7c3aed'
+}
+```
+
+---
+
+## navigation.js
+
+### `showScreen(name)`
+
+Chuyển màn hình đang hiển thị trong app. Ẩn tất cả screens, hiện screen được chỉ định, cập nhật active state của sidebar và nội dung header.
+
+**Input:**
+| Parameter | Kiểu | Mô tả |
+|---|---|---|
+| `name` | `string` | Tên màn hình: `'dashboard'` \| `'menu'` \| `'tables'` \| `'staff'` \| `'order'` |
+
+**Output:** `void`
+
+```js
+showScreen('menu')
+// → Hiện #screen-menu
+// → Sidebar: [data-screen="menu"] thêm class active
+// → Header title: "Thực đơn", subtitle: "Quản lý món ăn"
+```
+
+---
+
+### `renderRecentOrders()`
+
+Đọc mảng `recentOrders` từ `data.js` và render danh sách đơn gần đây vào Dashboard.
+
+**Input:** Không có — dữ liệu lấy từ `recentOrders` (import)
+
+**Output:** `void` — inject HTML vào `#recentOrders`
+
+---
+
+### `renderTableMiniGrid()`
+
+Render sơ đồ bàn dạng lưới nhỏ trên Dashboard. Mỗi ô hiển thị số bàn và màu trạng thái. Cập nhật đồng thời chú thích số lượng bàn theo từng trạng thái.
+
+**Input:** Không có — dữ liệu lấy từ `tables` (import)
+
+**Output:** `void` — inject HTML vào `#tableGrid` và `#tableLegend`
+
+| Trạng thái | Màu | CSS class |
+|---|---|---|
+| `free` | Xanh lá | `.t-free` |
+| `busy` | Cam | `.t-busy` |
+| `reserved` | Xanh dương | `.t-reserved` |
+
+---
+
+### `renderMenuGrid(filter?)`
+
+Render danh sách món ăn dạng card trên màn hình Thực đơn. Lọc theo danh mục nếu có truyền tham số.
+
+**Input:**
+| Parameter | Kiểu | Default | Mô tả |
+|---|---|---|---|
+| `filter` | `string` | `'all'` | Danh mục: `'all'` \| `'main'` \| `'starter'` \| `'drink'` |
+
+**Output:** `void` — inject HTML vào `#menuGrid`
+
+```js
+renderMenuGrid()           // Hiển thị tất cả món
+renderMenuGrid('drink')    // Chỉ hiển thị đồ uống
+```
+
+---
+
+### `renderTablesGrid()`
+
+Render danh sách bàn dạng card lớn trên màn hình Quản lý bàn. Mỗi card hiển thị số bàn, số chỗ ngồi, trạng thái và giờ đặt trước (nếu có).
+
+**Input:** Không có — dữ liệu lấy từ `tables` (import)
+
+**Output:** `void` — inject HTML vào `#tablesGrid`
+
+---
+
+### `renderStaffTable()`
+
+Render bảng nhân viên trên màn hình Quản lý nhân viên. Mỗi hàng gồm avatar (chữ cái đầu + màu), họ tên, chức vụ, ca làm, số điện thoại và badge trạng thái.
+
+**Input:** Không có — dữ liệu lấy từ `staff` (import)
+
+**Output:** `void` — inject HTML vào `#staffTableBody`
+
+---
+
+### `initMenuFilters()`
+
+Gắn event listener cho các nút lọc danh mục và ô tìm kiếm trên màn hình Thực đơn.
+
+- Nút lọc (`.filter-btn`): click → gọi `renderMenuGrid(cat)`, đánh dấu nút active
+- Ô tìm kiếm (`#menuSearch`): gõ → ẩn/hiện card theo tên món (không re-render)
+
+**Input:** Không có
+
+**Output:** `void` — gắn event listeners lên DOM
+
+---
+
+### `initNavigation()`
+
+Gắn event listener `click` cho tất cả nav item trong sidebar có thuộc tính `data-screen`. Khi click gọi `showScreen()` với giá trị của `data-screen`.
+
+**Input:** Không có
+
+**Output:** `void` — gắn event listeners lên DOM
+
+---
+
+## order.js
+
+### State: `bill {}`
+
+Object lưu trữ đơn hàng hiện tại trong bộ nhớ. Key là tên món, value là `{ price, qty }`.
+
+```js
+// Ví dụ sau khi thêm 2 món:
+bill = {
+  'Bò lúc lắc': { price: 185000, qty: 2 },
+  'Bia lon':     { price: 30000,  qty: 1 },
+}
+```
+
+---
+
+### `addToBill(name, price)`
+
+Thêm một món vào đơn. Nếu món đã có thì tăng số lượng lên 1. Nếu chưa có thì tạo mới với `qty = 1`. Tự động gọi `renderBill()` sau khi cập nhật.
+
+**Input:**
+| Parameter | Kiểu | Mô tả |
+|---|---|---|
+| `name` | `string` | Tên món — dùng làm key trong `bill` |
+| `price` | `number` | Giá một phần (VNĐ) |
+
+**Output:** `void`
+
+```js
+addToBill('Bò lúc lắc', 185000)
+// bill = { 'Bò lúc lắc': { price: 185000, qty: 1 } }
+
+addToBill('Bò lúc lắc', 185000)
+// bill = { 'Bò lúc lắc': { price: 185000, qty: 2 } }
+```
+
+---
+
+### `changeQty(name, delta)`
+
+Thay đổi số lượng của một món trong đơn. Nếu số lượng giảm về 0 hoặc âm thì xóa món đó khỏi `bill`. Tự động gọi `renderBill()` sau khi cập nhật.
+
+**Input:**
+| Parameter | Kiểu | Mô tả |
+|---|---|---|
+| `name` | `string` | Tên món cần thay đổi |
+| `delta` | `number` | `+1` để tăng, `-1` để giảm |
+
+**Output:** `void`
+
+```js
+// bill = { 'Bò lúc lắc': { price: 185000, qty: 2 } }
+
+changeQty('Bò lúc lắc', -1)
+// bill = { 'Bò lúc lắc': { price: 185000, qty: 1 } }
+
+changeQty('Bò lúc lắc', -1)
+// qty = 0 → xoá khỏi bill
+// bill = {}
+```
+
+---
+
+### `renderBill()`
+
+Render lại toàn bộ panel hoá đơn bên phải màn hình Gọi món dựa trên state hiện tại của `bill`. Tính và hiển thị tổng tiền. Nếu đơn trống thì hiện placeholder.
+
+**Input:** Không có — đọc trực tiếp từ `bill`
+
+**Output:** `void` — inject HTML vào `#billItems`, cập nhật text `#billTotal`
+
+---
+
+### `renderOrderMenu()`
+
+Render danh sách món có thể gọi ở bên trái màn hình Gọi món. Chỉ hiển thị các món có `available: true`. Mỗi card gắn `data-name` và `data-price` để dùng khi click.
+
+**Input:** Không có — lọc từ `menuItems` (import), chỉ lấy `available === true`
+
+**Output:** `void` — inject HTML vào `#orderMenuGrid`
+
+---
+
+### `submitOrder()`
+
+Xác nhận và gửi đơn xuống bếp. Kiểm tra đơn không trống trước khi thực hiện. Sau khi gửi thành công, xóa toàn bộ `bill` và reset UI về trạng thái ban đầu.
+
+**Input:** Không có — đọc state từ `bill`
+
+**Output:** `void`
+
+```js
+// Nếu bill có món:
+submitOrder()
+// → alert "Đã gửi đơn xuống bếp!"
+// → bill = {}, UI reset về trống
+
+// Nếu bill rỗng:
+submitOrder()
+// → alert "Chưa có món nào trong đơn!"
+// → không làm gì thêm
+```
