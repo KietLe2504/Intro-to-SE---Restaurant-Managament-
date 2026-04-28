@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Thông tin cá nhân — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <div class="profile-header">
+        <div class="profile-avatar" id="profile-avatar"></div>
+        <div>
+          <div class="profile-name" id="profile-name"></div>
+          <div class="profile-role" id="profile-role"></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-title">Thông tin tài khoản</div>
+          <div class="form-group">
+            <label class="form-label">Họ và tên</label>
+            <input class="form-input" id="p-name" type="text"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tên đăng nhập</label>
+            <input class="form-input" id="p-username" type="text" disabled style="opacity:0.6"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Số điện thoại</label>
+            <input class="form-input" id="p-phone" type="tel"/>
+          </div>
+          <button class="btn btn-primary" onclick="saveProfile()">Lưu thay đổi</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Đổi mật khẩu</div>
+          <div class="form-group">
+            <label class="form-label">Mật khẩu hiện tại</label>
+            <input class="form-input" id="p-old-pw" type="password"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mật khẩu mới</label>
+            <input class="form-input" id="p-new-pw" type="password"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Xác nhận mật khẩu mới</label>
+            <input class="form-input" id="p-confirm-pw" type="password"/>
+          </div>
+          <button class="btn btn-ghost" onclick="changePassword()">Đổi mật khẩu</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">Thống kê của tôi</div>
+        <div id="my-stats" style="display:flex;gap:20px;flex-wrap:wrap"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script type="module">
+  import { requireAuth, getSession, saveSession } from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast } from '../js/ui.js';
+  import { users, orders, calcOrderTotal }          from '../js/data.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+  renderSidebar('profile');
+  renderHeader({ title: 'Thông tin cá nhân', showBack: true, backUrl: 'dashboard.html' });
+
+  const user = users.find(u => u.id === session.id);
+  if (!user) { window.location.href = 'login.html'; throw new Error(); }
+
+  // Populate
+  document.getElementById('profile-avatar').textContent = user.name[0];
+  document.getElementById('profile-name').textContent   = user.name;
+  document.getElementById('profile-role').textContent   = user.role === 'manager' ? 'Quản lý' : 'Nhân viên';
+  document.getElementById('p-name').value     = user.name;
+  document.getElementById('p-username').value = user.username;
+  document.getElementById('p-phone').value    = user.phone || '';
+
+  // My stats
+  const myOrders  = orders.filter(o => o.staffId === user.id);
+  const myRevenue = myOrders.filter(o => o.status === 'paid').reduce((s,o) => s + calcOrderTotal(o), 0);
+  document.getElementById('my-stats').innerHTML = [
+    { label: 'Tổng đơn', value: myOrders.length },
+    { label: 'Đơn đã thanh toán', value: myOrders.filter(o => o.status === 'paid').length },
+    { label: 'Đơn bị hủy', value: myOrders.filter(o => o.status === 'cancelled').length },
+    { label: 'Doanh thu tạo ra', value: myRevenue.toLocaleString('vi') + 'đ' },
+  ].map(s => `
+    <div style="flex:1;min-width:140px;background:var(--surface2);padding:16px;border-radius:var(--radius)">
+      <div class="stat-label">${s.label}</div>
+      <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--red)">${s.value}</div>
+    </div>
+  `).join('');
+
+  window.saveProfile = function() {
+    const newName  = document.getElementById('p-name').value.trim();
+    const newPhone = document.getElementById('p-phone').value.trim();
+    if (!newName) return showToast('Tên không được để trống!', 'error');
+    user.name = newName; user.phone = newPhone;
+    const s = getSession(); s.name = newName; saveSession(s);
+    showToast('Đã lưu thông tin!', 'success');
+    document.getElementById('profile-name').textContent = newName;
+    document.getElementById('profile-avatar').textContent = newName[0];
+  };
+
+  window.changePassword = function() {
+    const oldPw  = document.getElementById('p-old-pw').value;
+    const newPw  = document.getElementById('p-new-pw').value;
+    const confirm= document.getElementById('p-confirm-pw').value;
+    if (oldPw !== user.password) return showToast('Mật khẩu hiện tại không đúng!', 'error');
+    if (newPw.length < 6)        return showToast('Mật khẩu mới tối thiểu 6 ký tự!', 'error');
+    if (newPw !== confirm)       return showToast('Mật khẩu xác nhận không khớp!', 'error');
+    user.password = newPw;
+    ['p-old-pw','p-new-pw','p-confirm-pw'].forEach(id => document.getElementById(id).value = '');
+    showToast('Đổi mật khẩu thành công!', 'success');
+  };
+</script>
+</body>
+</html>

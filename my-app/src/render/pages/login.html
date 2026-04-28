@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Đăng nhập — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+
+<div class="login-page">
+  <div class="login-card">
+
+    <div class="login-logo">Nhà Hàng</div>
+    <div class="login-logo-sub">Hệ thống quản lý nhà hàng</div>
+
+    <!-- Tabs: chỉ hiện Sign up nếu có manager session (đang tạo staff) -->
+    <div class="login-tabs" id="login-tabs">
+      <div class="login-tab active" data-tab="signin" onclick="switchTab('signin')">Đăng nhập</div>
+      <div class="login-tab" data-tab="signup" id="signup-tab" style="display:none" onclick="switchTab('signup')">Tạo tài khoản</div>
+    </div>
+
+    <!-- SIGN IN FORM -->
+    <div id="form-signin">
+      <div class="form-group">
+        <label class="form-label">Tên đăng nhập</label>
+        <input class="form-input" id="login-username" type="text" placeholder="Nhập tên đăng nhập" autocomplete="username"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mật khẩu</label>
+        <input class="form-input" id="login-password" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password"/>
+      </div>
+      <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none"></div>
+      <button class="btn btn-primary btn-full" onclick="handleLogin()">Đăng nhập</button>
+
+      <div class="vn-divider" style="margin:20px 0 12px"></div>
+      <div style="font-size:12px;color:var(--muted);text-align:center">
+        Tài khoản demo: <strong>manager</strong> / <strong>123456</strong>
+      </div>
+    </div>
+
+    <!-- SIGN UP FORM (Manager only) -->
+    <div id="form-signup" style="display:none">
+      <div style="background:var(--gold-bg);border:1px solid rgba(212,160,23,0.3);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--gold-deep)">
+        ★ Chỉ quản lý mới có thể tạo tài khoản nhân viên.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Họ và tên</label>
+        <input class="form-input" id="reg-name" type="text" placeholder="Nguyễn Văn A"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tên đăng nhập</label>
+        <input class="form-input" id="reg-username" type="text" placeholder="nhanvien01"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mật khẩu</label>
+        <input class="form-input" id="reg-password" type="password" placeholder="Tối thiểu 6 ký tự"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Số điện thoại</label>
+        <input class="form-input" id="reg-phone" type="tel" placeholder="0901 234 567"/>
+      </div>
+      <div id="reg-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none"></div>
+      <button class="btn btn-gold btn-full" onclick="handleRegister()">Tạo tài khoản nhân viên</button>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+  import { login, registerStaff, getSession, saveSession } from '../js/auth.js';
+
+  // Nếu đã login → về dashboard
+  const session = getSession();
+  if (session) window.location.href = 'dashboard.html';
+
+  // Nếu manager đang dùng app → cho phép tạo tài khoản staff
+  // (Manager mở trang login lại để tạo nhân viên)
+  if (session && session.role === 'manager') {
+    document.getElementById('signup-tab').style.display = '';
+  }
+
+  window.switchTab = function(tab) {
+    document.querySelectorAll('.login-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.getElementById('form-signin').style.display = tab === 'signin' ? '' : 'none';
+    document.getElementById('form-signup').style.display = tab === 'signup' ? '' : 'none';
+  };
+
+  window.handleLogin = function() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errEl    = document.getElementById('login-error');
+
+    const result = login(username, password);
+    if (!result.success) {
+      errEl.textContent = result.error;
+      errEl.style.display = 'block';
+      return;
+    }
+    errEl.style.display = 'none';
+    window.location.href = 'dashboard.html';
+  };
+
+  window.handleRegister = function() {
+    const currentSession = getSession();
+    if (!currentSession || currentSession.role !== 'manager') {
+      document.getElementById('reg-error').textContent = 'Bạn không có quyền tạo tài khoản.';
+      document.getElementById('reg-error').style.display = 'block';
+      return;
+    }
+
+    const data = {
+      name:     document.getElementById('reg-name').value.trim(),
+      username: document.getElementById('reg-username').value.trim(),
+      password: document.getElementById('reg-password').value,
+      phone:    document.getElementById('reg-phone').value.trim(),
+    };
+
+    const result = registerStaff(data, currentSession);
+    const errEl  = document.getElementById('reg-error');
+    if (!result.success) {
+      errEl.textContent = result.error;
+      errEl.style.display = 'block';
+      return;
+    }
+    errEl.style.display = 'none';
+    alert('Tạo tài khoản nhân viên thành công!');
+    // Reset form
+    ['reg-name','reg-username','reg-password','reg-phone'].forEach(id => document.getElementById(id).value = '');
+  };
+
+  // Enter key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const activeTab = document.querySelector('.login-tab.active')?.dataset.tab;
+      if (activeTab === 'signin') window.handleLogin();
+      else window.handleRegister();
+    }
+  });
+</script>
+</body>
+</html>

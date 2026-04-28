@@ -1,0 +1,76 @@
+<!-- ============================================================
+menu.html
+============================================================ -->
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Thực đơn — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+      <div class="page-toolbar">
+        <input class="search-input" placeholder="🔍 Tìm món ăn..." id="menu-search" oninput="renderMenu()"/>
+        <div class="filter-group" id="cat-filters">
+          <div class="filter-chip active" data-cat="all"     onclick="setCat('all')">Tất cả</div>
+          <div class="filter-chip"        data-cat="starter" onclick="setCat('starter')">Khai vị</div>
+          <div class="filter-chip"        data-cat="main"    onclick="setCat('main')">Món chính</div>
+          <div class="filter-chip"        data-cat="dessert" onclick="setCat('dessert')">Tráng miệng</div>
+          <div class="filter-chip"        data-cat="drink"   onclick="setCat('drink')">Đồ uống</div>
+        </div>
+      </div>
+      <div class="menu-grid" id="menu-grid"></div>
+    </div>
+  </div>
+</div>
+<script type="module">
+  import { requireAuth }                   from '../js/auth.js';
+  import { renderSidebar, renderHeader }   from '../js/ui.js';
+  import { menuItems, CAT_LABEL }          from '../js/data.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+  renderSidebar('menu');
+  renderHeader({ title: 'Thực đơn', sub: `${menuItems.length} món`, showBack: true, backUrl: 'dashboard.html' });
+
+  let currentCat = 'all';
+
+  window.setCat = function(cat) {
+    currentCat = cat;
+    document.querySelectorAll('[data-cat]').forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+    renderMenu();
+  };
+
+  window.renderMenu = function() {
+    const q = document.getElementById('menu-search').value.toLowerCase();
+    const items = menuItems.filter(m =>
+      (currentCat === 'all' || m.cat === currentCat) && m.name.toLowerCase().includes(q)
+    );
+    document.getElementById('menu-grid').innerHTML = items.map(m => `
+      <div class="menu-card">
+        <div class="menu-card-img">${m.emoji}</div>
+        <div class="menu-card-body">
+          <div class="menu-card-name">${m.name}</div>
+          <div class="menu-card-cat">${CAT_LABEL[m.cat]}</div>
+          <div class="menu-card-footer">
+            <div class="menu-card-price">${m.price.toLocaleString('vi')}đ</div>
+            <span class="badge ${m.available ? 'badge-green' : 'badge-red'}">${m.available ? 'Còn' : 'Hết'}</span>
+          </div>
+        </div>
+      </div>
+    `).join('') || '<div style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Không tìm thấy món</div>';
+  };
+
+  renderMenu();
+</script>
+</body>
+</html>

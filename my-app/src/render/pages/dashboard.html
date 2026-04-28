@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <!-- Stats -->
+      <div class="stats-grid" id="stats-grid"></div>
+
+      <div class="dash-grid">
+        <!-- Recent orders -->
+        <div class="card">
+          <div class="card-title">
+            Đơn gần đây
+            <span class="card-title-sub" style="cursor:pointer;color:var(--red)" onclick="window.location.href='orders.html'">Xem tất cả →</span>
+          </div>
+          <div id="recent-orders"></div>
+        </div>
+
+        <!-- Table map -->
+        <div class="card">
+          <div class="card-title">Sơ đồ bàn <span class="card-title-sub" id="table-summary"></span></div>
+          <div class="mini-table-dots" id="mini-tables"></div>
+          <div class="vn-divider"></div>
+          <div style="display:flex;gap:12px;font-size:11px;flex-wrap:wrap">
+            <span style="color:var(--green)">● Trống</span>
+            <span style="color:var(--orange)">● Chưa đầy</span>
+            <span style="color:var(--red)">● Đầy</span>
+            <span style="color:var(--blue)">● Đặt trước</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth }               from '../js/auth.js';
+  import { renderSidebar, renderHeader } from '../js/ui.js';
+  import { orders, tables, calcOrderTotal, TABLE_STATUS_LABEL, ORDER_STATUS_LABEL } from '../js/data.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error('Not authenticated');
+
+  renderSidebar('dashboard');
+  renderHeader({ title: 'Dashboard', sub: 'Tổng quan hôm nay', showBack: false });
+
+  // ── Stats ──
+  const paid      = orders.filter(o => o.status === 'paid');
+  const unpaid    = orders.filter(o => o.status === 'unpaid');
+  const totalRev  = paid.reduce((s, o) => s + calcOrderTotal(o), 0);
+  const freeCount = tables.filter(t => t.status === 'free').length;
+
+  const statsData = [
+    { label: 'Doanh thu hôm nay', value: totalRev.toLocaleString('vi') + 'đ', delta: '↑ 12%', deltaClass: 'delta-up', accent: true },
+    { label: 'Đơn chưa thanh toán', value: unpaid.length, delta: 'Cần xử lý', deltaClass: 'delta-muted', accent: true },
+    { label: 'Bàn đang trống', value: `${freeCount}/${tables.length}`, delta: `${tables.length - freeCount} bàn có khách`, deltaClass: 'delta-muted' },
+    { label: 'Tổng đơn hôm nay', value: orders.length, delta: `${paid.length} đã thanh toán`, deltaClass: 'delta-up' },
+  ];
+
+  document.getElementById('stats-grid').innerHTML = statsData.map(s => `
+    <div class="stat-card ${s.accent ? 'stat-card-accent' : 'stat-card-gold'}">
+      <div class="stat-label">${s.label}</div>
+      <div class="stat-value">${s.value}</div>
+      <div class="stat-delta ${s.deltaClass}">${s.delta}</div>
+    </div>
+  `).join('');
+
+  // ── Recent Orders ──
+  const statusBadge = { unpaid: 'badge-orange', paid: 'badge-green', cancelled: 'badge-muted' };
+  const recent = [...orders].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
+
+  document.getElementById('recent-orders').innerHTML = recent.length ? recent.map(o => {
+    const table = tables.find(t => t.id === o.tableId);
+    const total = calcOrderTotal(o);
+    const time  = new Date(o.createdAt).toLocaleTimeString('vi', { hour: '2-digit', minute: '2-digit' });
+    return `
+      <div class="order-row" onclick="window.location.href='orders.html'" style="cursor:pointer">
+        <div class="order-id">${o.id.replace('ord-', '#')}</div>
+        <div class="order-table">Bàn ${table?.num || '?'}</div>
+        <div class="order-items">${o.items.map(i => i.name).join(', ')}</div>
+        <div class="order-price">${total.toLocaleString('vi')}đ</div>
+        <div><span class="badge ${statusBadge[o.status]}">${ORDER_STATUS_LABEL[o.status]}</span></div>
+        <div style="color:var(--muted);font-size:12px;min-width:40px">${time}</div>
+      </div>
+    `;
+  }).join('') : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có đơn nào hôm nay</div>';
+
+  // ── Mini Table Map ──
+  const statusClass = { free: 'md-free', partial: 'md-partial', full: 'md-full', reserved: 'md-reserved' };
+  document.getElementById('mini-tables').innerHTML = tables.map(t => `
+    <div class="mini-dot ${statusClass[t.status]}" title="Bàn ${t.num} — ${TABLE_STATUS_LABEL[t.status]}" onclick="window.location.href='tables.html'">
+      <span class="mini-dot-num">${t.num}</span>
+    </div>
+  `).join('');
+
+  document.getElementById('table-summary').textContent = `${tables.length} bàn`;
+</script>
+</body>
+</html>

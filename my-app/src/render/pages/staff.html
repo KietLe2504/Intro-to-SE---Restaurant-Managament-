@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Nhân viên — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <div class="page-toolbar">
+        <input class="search-input" placeholder="🔍 Tìm nhân viên..." id="staff-search" oninput="renderStaff()"/>
+        <button class="btn btn-primary" onclick="window.location.href='login.html'">+ Tạo tài khoản mới</button>
+      </div>
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nhân viên</th>
+              <th>Tên đăng nhập</th>
+              <th>Vai trò</th>
+              <th>Số điện thoại</th>
+              <th>Ngày tạo</th>
+              <th>Đơn đã tạo</th>
+            </tr>
+          </thead>
+          <tbody id="staff-tbody"></tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script type="module">
+  import { requireManager }                from '../js/auth.js';
+  import { renderSidebar, renderHeader }   from '../js/ui.js';
+  import { users, orders }                 from '../js/data.js';
+
+  const session = requireManager();
+  if (!session) throw new Error();
+  renderSidebar('staff');
+  renderHeader({ title: 'Nhân viên', sub: `${users.length} tài khoản`, showBack: true, backUrl: 'dashboard.html' });
+
+  const colors = ['#922B21','#0891b2','#b45309','#065f46','#7c3aed','#be123c'];
+
+  window.renderStaff = function() {
+    const q = document.getElementById('staff-search').value.toLowerCase();
+    const filtered = users.filter(u => u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q));
+
+    document.getElementById('staff-tbody').innerHTML = filtered.map((u, i) => {
+      const orderCount = orders.filter(o => o.staffId === u.id).length;
+      return `
+        <tr>
+          <td>
+            <div class="staff-name-cell">
+              <div class="staff-avatar" style="background:${colors[i % colors.length]}">${u.name[0]}</div>
+              ${u.name}
+            </div>
+          </td>
+          <td style="color:var(--muted);font-family:monospace">${u.username}</td>
+          <td><span class="badge ${u.role === 'manager' ? 'badge-red' : 'badge-blue'}">${u.role === 'manager' ? 'Quản lý' : 'Nhân viên'}</span></td>
+          <td style="color:var(--muted)">${u.phone || '—'}</td>
+          <td style="color:var(--muted);font-size:12px">${u.createdAt}</td>
+          <td><span class="badge badge-muted">${orderCount} đơn</span></td>
+        </tr>
+      `;
+    }).join('');
+  };
+
+  renderStaff();
+</script>
+</body>
+</html>

@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Đơn hàng — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <!-- Mode: list or create -->
+      <div id="view-list">
+        <div class="orders-header">
+          <div>
+            <div style="font-size:13px;color:var(--muted)" id="order-count"></div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <!-- Filter by status -->
+            <div class="filter-group">
+              <div class="filter-chip active" data-sf="all"       onclick="setStatusFilter('all')">Tất cả</div>
+              <div class="filter-chip"        data-sf="unpaid"    onclick="setStatusFilter('unpaid')">Chưa thanh toán</div>
+              <div class="filter-chip"        data-sf="paid"      onclick="setStatusFilter('paid')">Đã thanh toán</div>
+              <div class="filter-chip"        data-sf="cancelled" onclick="setStatusFilter('cancelled')">Đã hủy</div>
+            </div>
+            <!-- Filter by table -->
+            <select class="form-select" id="table-filter" style="width:130px" onchange="renderOrderList()">
+              <option value="">Tất cả bàn</option>
+            </select>
+            <button class="btn btn-primary" onclick="showCreateOrder()">+ Tạo đơn mới</button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0;overflow:hidden">
+          <table class="data-table" id="order-table">
+            <thead>
+              <tr>
+                <th>Mã đơn</th>
+                <th>Bàn</th>
+                <th>Nhân viên</th>
+                <th>Món</th>
+                <th>Tổng tiền</th>
+                <th>Trạng thái</th>
+                <th>Thời gian</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="order-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Create / Edit Order view -->
+      <div id="view-create" style="display:none">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+          <button class="btn btn-ghost" onclick="backToList()">← Quay lại</button>
+          <div>
+            <div style="font-family:var(--font-display);font-size:18px;font-weight:700" id="create-title">Tạo đơn mới</div>
+            <div style="font-size:13px;color:var(--muted)" id="create-sub"></div>
+          </div>
+        </div>
+
+        <div class="order-layout">
+          <!-- Menu panel -->
+          <div class="order-menu-panel">
+            <div class="page-toolbar" style="margin-bottom:12px">
+              <input class="search-input" placeholder="🔍 Tìm món..." id="menu-search" oninput="filterMenu()"/>
+              <div class="filter-group" id="cat-filters">
+                <div class="filter-chip active" data-cat="all"     onclick="setCatFilter('all')">Tất cả</div>
+                <div class="filter-chip"        data-cat="starter" onclick="setCatFilter('starter')">Khai vị</div>
+                <div class="filter-chip"        data-cat="main"    onclick="setCatFilter('main')">Món chính</div>
+                <div class="filter-chip"        data-cat="dessert" onclick="setCatFilter('dessert')">Tráng miệng</div>
+                <div class="filter-chip"        data-cat="drink"   onclick="setCatFilter('drink')">Đồ uống</div>
+              </div>
+            </div>
+            <div id="menu-items-list"></div>
+          </div>
+
+          <!-- Bill panel -->
+          <div class="bill-panel">
+            <div class="card" style="padding:16px">
+              <div class="card-title" style="margin-bottom:12px">
+                Hoá đơn
+                <span class="card-title-sub" id="bill-table-label"></span>
+              </div>
+              <!-- Table selector -->
+              <div class="form-group" id="table-selector-group">
+                <label class="form-label">Chọn bàn</label>
+                <select class="form-select" id="bill-table-select" onchange="onTableSelect()">
+                  <option value="">-- Chọn bàn --</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Số khách</label>
+                <input class="form-input" type="number" id="bill-guests" min="1" placeholder="Số khách"/>
+              </div>
+              <div class="bill-scroll" id="bill-items">
+                <div class="bill-empty-msg">Chọn món để thêm vào đơn</div>
+              </div>
+              <div class="bill-subtotal">
+                <span>Số món: <strong id="bill-count">0</strong></span>
+              </div>
+              <div class="bill-total">
+                <span>Tổng cộng</span>
+                <span class="bill-total-num" id="bill-total">0đ</span>
+              </div>
+              <button class="btn btn-primary btn-full" onclick="submitOrder()">Xác nhận đơn →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Edit items modal -->
+<div class="modal-backdrop" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Sửa đơn</div>
+      <button class="modal-close" onclick="closeEditModal()">×</button>
+    </div>
+    <div class="modal-body" id="edit-modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Đóng</button>
+      <button class="btn btn-primary" onclick="saveEditOrder()">Lưu thay đổi</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth }                           from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import { orders, tables, menuItems, calcOrderTotal, ORDER_STATUS_LABEL, TABLE_STATUS_LABEL, CAT_LABEL, getTableStatus } from '../js/data.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+  renderSidebar('orders');
+  renderHeader({ title: 'Đơn hàng', sub: 'Quản lý tất cả đơn', showBack: true, backUrl: 'dashboard.html' });
+
+  // State
+  let statusFilter = 'all';
+  let catFilter    = 'all';
+  let bill         = {}; // { menuId: { name, price, qty } }
+  let editingOrder = null;
+
+  const statusBadge = { unpaid: 'badge-orange', paid: 'badge-green', cancelled: 'badge-muted' };
+
+  // ── Populate table filter dropdown ──
+  function populateTableFilter() {
+    const sel = document.getElementById('table-filter');
+    tables.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id; opt.textContent = `Bàn ${t.num}`;
+      sel.appendChild(opt);
+    });
+  }
+
+  // ── Order List ──
+  window.setStatusFilter = function(sf) {
+    statusFilter = sf;
+    document.querySelectorAll('[data-sf]').forEach(c => c.classList.toggle('active', c.dataset.sf === sf));
+    renderOrderList();
+  };
+
+  window.renderOrderList = function() {
+    const tableFilter = document.getElementById('table-filter').value;
+    const isManager = session.role === 'manager';
+
+    let list = orders.filter(o => {
+      if (statusFilter !== 'all' && o.status !== statusFilter) return false;
+      if (tableFilter && o.tableId !== tableFilter) return false;
+      if (!isManager && o.staffId !== session.id) return false;
+      return true;
+    }).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    document.getElementById('order-count').textContent = `${list.length} đơn`;
+
+    const tbody = document.getElementById('order-tbody');
+    tbody.innerHTML = list.map(o => {
+      const table = tables.find(t => t.id === o.tableId);
+      const total = calcOrderTotal(o);
+      const time  = new Date(o.createdAt).toLocaleString('vi', { hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit' });
+      const canEdit = o.status === 'unpaid' || o.status === 'cancelled';
+      return `
+        <tr>
+          <td style="font-family:var(--font-display);font-weight:700;color:var(--red)">${o.id.replace('ord-','#')}</td>
+          <td>Bàn ${table?.num || '?'}</td>
+          <td style="color:var(--muted)">${o.staffName}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o.items.map(i=>i.name).join(', ')}</td>
+          <td style="font-weight:600">${total.toLocaleString('vi')}đ</td>
+          <td><span class="badge ${statusBadge[o.status]}">${ORDER_STATUS_LABEL[o.status]}</span></td>
+          <td style="color:var(--muted);font-size:12px">${time}</td>
+          <td>
+            <div style="display:flex;gap:4px">
+              ${canEdit ? `<button class="btn btn-sm btn-ghost" onclick="openEditModal('${o.id}')">Sửa</button>` : ''}
+              ${o.status === 'unpaid' ? `
+                <button class="btn btn-sm btn-gold" onclick="markPaid('${o.id}')">Thanh toán</button>
+                <button class="btn btn-sm btn-danger" onclick="cancelOrder('${o.id}')">Hủy</button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    if (!tbody.innerHTML.trim()) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">Không có đơn nào</td></tr>';
+    }
+  };
+
+  // ── Create Order ──
+  window.showCreateOrder = function() {
+    document.getElementById('view-list').style.display = 'none';
+    document.getElementById('view-create').style.display = '';
+    document.getElementById('create-title').textContent = 'Tạo đơn mới';
+    bill = {};
+
+    // Populate bill table select
+    const sel = document.getElementById('bill-table-select');
+    sel.innerHTML = '<option value="">-- Chọn bàn --</option>';
+    tables.filter(t => t.status !== 'full').forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = `Bàn ${t.num} (${TABLE_STATUS_LABEL[t.status]}, ${t.seats} chỗ)`;
+      sel.appendChild(opt);
+    });
+
+    // Pre-select from sessionStorage if coming from tables page
+    const preTable = sessionStorage.getItem('new_order_table');
+    if (preTable) { sel.value = preTable; sessionStorage.removeItem('new_order_table'); }
+
+    renderMenuPanel();
+    renderBill();
+  };
+
+  window.backToList = function() {
+    document.getElementById('view-list').style.display = '';
+    document.getElementById('view-create').style.display = 'none';
+  };
+
+  window.setCatFilter = function(cat) {
+    catFilter = cat;
+    document.querySelectorAll('[data-cat]').forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+    renderMenuPanel();
+  };
+
+  window.filterMenu = function() { renderMenuPanel(); };
+
+  function renderMenuPanel() {
+    const q = (document.getElementById('menu-search')?.value || '').toLowerCase();
+    const cats = catFilter === 'all' ? ['starter','main','dessert','drink'] : [catFilter];
+    let html = '';
+    cats.forEach(cat => {
+      const items = menuItems.filter(m => m.cat === cat && m.name.toLowerCase().includes(q));
+      if (!items.length) return;
+      html += `<div class="menu-section-title">${CAT_LABEL[cat]}</div>`;
+      html += items.map(m => `
+        <div class="menu-item-card ${!m.available ? 'unavailable' : ''}" onclick="${m.available ? `addItem('${m.id}')` : ''}">
+          <div class="menu-item-emoji">${m.emoji}</div>
+          <div class="menu-item-name">${m.name} ${!m.available ? '<span class="badge badge-muted" style="font-size:10px">Hết</span>' : ''}</div>
+          <div class="menu-item-price">${m.price.toLocaleString('vi')}đ</div>
+        </div>
+      `).join('');
+    });
+    document.getElementById('menu-items-list').innerHTML = html || '<div style="color:var(--muted);text-align:center;padding:20px">Không tìm thấy món</div>';
+  }
+
+  window.onTableSelect = function() {
+    const tid  = document.getElementById('bill-table-select').value;
+    const table = tables.find(t => t.id === tid);
+    document.getElementById('bill-table-label').textContent = table ? `Bàn ${table.num}` : '';
+  };
+
+  window.addItem = function(menuId) {
+    const m = menuItems.find(m => m.id === menuId);
+    if (!m || !m.available) return;
+    if (bill[menuId]) bill[menuId].qty++;
+    else bill[menuId] = { name: m.name, price: m.price, qty: 1 };
+    renderBill();
+  };
+
+  window.changeBillQty = function(menuId, delta) {
+    if (!bill[menuId]) return;
+    bill[menuId].qty += delta;
+    if (bill[menuId].qty <= 0) delete bill[menuId];
+    renderBill();
+  };
+
+  function renderBill() {
+    const keys = Object.keys(bill);
+    const container = document.getElementById('bill-items');
+    if (!keys.length) {
+      container.innerHTML = '<div class="bill-empty-msg">Chọn món để thêm vào đơn</div>';
+      document.getElementById('bill-total').textContent = '0đ';
+      document.getElementById('bill-count').textContent = '0';
+      return;
+    }
+    let total = 0, count = 0;
+    container.innerHTML = keys.map(id => {
+      const item = bill[id];
+      const sub  = item.price * item.qty;
+      total += sub; count += item.qty;
+      return `
+        <div class="bill-item">
+          <div class="bill-item-name">${item.name}</div>
+          <button class="qty-btn" onclick="changeBillQty('${id}',-1)">−</button>
+          <span class="bill-item-qty">${item.qty}</span>
+          <button class="qty-btn" onclick="changeBillQty('${id}',1)">+</button>
+          <div class="bill-item-price">${sub.toLocaleString('vi')}đ</div>
+        </div>
+      `;
+    }).join('');
+    document.getElementById('bill-total').textContent = total.toLocaleString('vi') + 'đ';
+    document.getElementById('bill-count').textContent = count;
+  }
+
+  window.submitOrder = function() {
+    const tableId = document.getElementById('bill-table-select').value;
+    const guests  = parseInt(document.getElementById('bill-guests').value) || 0;
+    if (!tableId)               return showToast('Vui lòng chọn bàn!', 'error');
+    if (!Object.keys(bill).length) return showToast('Chưa có món nào!', 'error');
+    if (!guests)                return showToast('Vui lòng nhập số khách!', 'error');
+
+    const table = tables.find(t => t.id === tableId);
+    if (guests > table.seats)   return showToast(`Bàn chỉ có ${table.seats} chỗ!`, 'error');
+
+    const newOrder = {
+      id: 'ord-' + String(orders.length + 1).padStart(3, '0'),
+      tableId, staffId: session.id, staffName: session.name,
+      status: 'unpaid',
+      createdAt: new Date().toISOString(),
+      items: Object.entries(bill).map(([menuId, item]) => ({
+        menuId, name: item.name, price: item.price, qty: item.qty, served: false
+      })),
+    };
+    orders.push(newOrder);
+    table.currentGuests = guests;
+    table.status = getTableStatus(table);
+
+    showToast('Tạo đơn thành công!', 'success');
+    bill = {};
+    backToList();
+    renderOrderList();
+  };
+
+  // ── Edit / Cancel / Pay ──
+  window.openEditModal = function(orderId) {
+    editingOrder = orders.find(o => o.id === orderId);
+    if (!editingOrder) return;
+
+    const body = document.getElementById('edit-modal-body');
+    body.innerHTML = `
+      <div style="margin-bottom:12px;font-size:13px;color:var(--muted)">Chỉ có thể xóa hoặc đổi món chưa phục vụ</div>
+      ${editingOrder.items.map((item, i) => `
+        <div class="bill-item">
+          <div class="bill-item-name">
+            ${item.name}
+            ${item.served ? '<span class="badge badge-green" style="font-size:10px;margin-left:6px">Đã phục vụ</span>' : ''}
+          </div>
+          <span class="bill-item-qty">${item.qty}</span>
+          <div class="bill-item-price">${(item.price * item.qty).toLocaleString('vi')}đ</div>
+          ${!item.served ? `<button class="btn btn-sm btn-danger" onclick="removeEditItem(${i})">Xóa</button>` : ''}
+        </div>
+      `).join('')}
+    `;
+    document.getElementById('edit-modal').classList.add('open');
+  };
+
+  window.removeEditItem = function(idx) {
+    editingOrder.items.splice(idx, 1);
+    if (!editingOrder.items.length) {
+      closeEditModal();
+      showToast('Đơn không còn món nào, đã hủy đơn', 'warning');
+      editingOrder.status = 'cancelled';
+    } else {
+      openEditModal(editingOrder.id);
+    }
+    renderOrderList();
+  };
+
+  window.saveEditOrder = function() {
+    showToast('Đã lưu thay đổi!', 'success');
+    closeEditModal();
+    renderOrderList();
+  };
+
+  window.closeEditModal = function() {
+    document.getElementById('edit-modal').classList.remove('open');
+  };
+
+  window.markPaid = function(orderId) {
+    confirmDialog({
+      title: 'Xác nhận thanh toán',
+      body: 'Xác nhận đơn hàng đã được thanh toán?',
+      confirmLabel: 'Xác nhận', confirmClass: 'btn-gold',
+      onConfirm: () => {
+        const o = orders.find(o => o.id === orderId);
+        if (o) { o.status = 'paid'; renderOrderList(); showToast('Đã thanh toán!', 'success'); }
+      }
+    });
+  };
+
+  window.cancelOrder = function(orderId) {
+    confirmDialog({
+      title: 'Hủy đơn', body: 'Bạn có chắc muốn hủy đơn này không?',
+      confirmLabel: 'Hủy đơn', confirmClass: 'btn-danger',
+      onConfirm: () => {
+        const o = orders.find(o => o.id === orderId);
+        if (o) { o.status = 'cancelled'; renderOrderList(); showToast('Đã hủy đơn', 'warning'); }
+      }
+    });
+  };
+
+  // Init
+  populateTableFilter();
+  renderOrderList();
+
+  // Auto open create if coming from tables page
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('new') === '1') showCreateOrder();
+</script>
+</body>
+</html>

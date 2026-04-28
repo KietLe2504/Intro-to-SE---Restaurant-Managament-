@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Quản lý bàn — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <!-- Filter bar -->
+      <div class="filter-bar">
+        <span style="font-size:13px;font-weight:600;color:var(--text2)">Lọc:</span>
+        <div class="filter-chip active" data-filter="all"     onclick="filterTables('all')">Tất cả</div>
+        <div class="filter-chip"       data-filter="free"     onclick="filterTables('free')">Trống</div>
+        <div class="filter-chip"       data-filter="partial"  onclick="filterTables('partial')">Chưa đầy</div>
+        <div class="filter-chip"       data-filter="full"     onclick="filterTables('full')">Đầy</div>
+        <div class="filter-chip"       data-filter="reserved" onclick="filterTables('reserved')">Đặt trước</div>
+      </div>
+
+      <div class="tables-grid" id="tables-grid"></div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Table Detail / Action -->
+<div class="modal-backdrop" id="table-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-table-title">Bàn</div>
+      <button class="modal-close" onclick="closeTableModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-table-info" style="margin-bottom:16px"></div>
+      <div class="form-group" id="guests-group">
+        <label class="form-label">Số khách (chỗ ngồi)</label>
+        <input class="form-input" type="number" id="guests-input" min="0" placeholder="Nhập số khách"/>
+      </div>
+      <div class="form-group" id="reserve-group" style="display:none">
+        <label class="form-label">Giờ đặt trước</label>
+        <input class="form-input" type="time" id="reserve-time"/>
+      </div>
+    </div>
+    <div class="modal-footer" id="modal-table-actions"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth }                 from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast } from '../js/ui.js';
+  import { tables, TABLE_STATUS_LABEL, getTableStatus, orders } from '../js/data.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+  renderSidebar('tables');
+  renderHeader({ title: 'Quản lý bàn', sub: `${tables.length} bàn`, showBack: true, backUrl: 'dashboard.html' });
+
+  let currentFilter = 'all';
+  let selectedTable = null;
+
+  const statusClass = { free: 't-free', partial: 't-partial', full: 't-full', reserved: 't-reserved' };
+  const statusBadge = { free: 'badge-green', partial: 'badge-orange', full: 'badge-red', reserved: 'badge-blue' };
+
+  window.filterTables = function(filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === filter));
+    renderGrid();
+  };
+
+  function renderGrid() {
+    const filtered = currentFilter === 'all' ? tables : tables.filter(t => t.status === currentFilter);
+    const grid = document.getElementById('tables-grid');
+
+    grid.innerHTML = filtered.map(t => {
+      const status = getTableStatus(t);
+      const activeOrder = orders.find(o => o.tableId === t.id && o.status === 'unpaid');
+      return `
+        <div class="table-card ${statusClass[status]}" onclick="openTableModal('${t.id}')">
+          <div class="table-num">Bàn ${t.num}</div>
+          <div class="table-seats">Sức chứa: ${t.seats} người</div>
+          <div class="table-occupancy">Đang ngồi: ${t.currentGuests} / ${t.seats}</div>
+          <div class="table-status" style="margin-top:8px">
+            <span class="badge ${statusBadge[status]}">${TABLE_STATUS_LABEL[status]}</span>
+          </div>
+          ${t.reservedAt ? `<div style="font-size:11px;color:var(--blue);margin-top:4px">🕐 Đặt lúc ${t.reservedAt}</div>` : ''}
+          ${activeOrder ? `<div style="font-size:11px;color:var(--orange);margin-top:4px">📋 Có đơn đang mở</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  window.openTableModal = function(tableId) {
+    selectedTable = tables.find(t => t.id === tableId);
+    if (!selectedTable) return;
+
+    const status = getTableStatus(selectedTable);
+    const activeOrder = orders.find(o => o.tableId === tableId && o.status === 'unpaid');
+
+    document.getElementById('modal-table-title').textContent = `Bàn ${selectedTable.num}`;
+    document.getElementById('modal-table-info').innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <span class="badge ${statusBadge[status]}">${TABLE_STATUS_LABEL[status]}</span>
+        <span style="font-size:13px;color:var(--muted)">${selectedTable.seats} chỗ ngồi</span>
+      </div>
+      <div style="font-size:13px;color:var(--text2)">Hiện có <strong>${selectedTable.currentGuests}</strong> khách</div>
+    `;
+
+    document.getElementById('guests-input').value = selectedTable.currentGuests;
+    document.getElementById('reserve-time').value = selectedTable.reservedAt || '';
+
+    // Show/hide reserve input
+    const showReserve = status === 'free' || status === 'reserved';
+    document.getElementById('reserve-group').style.display = showReserve ? '' : 'none';
+
+    // Actions
+    const actions = document.getElementById('modal-table-actions');
+    let btns = `<button class="btn btn-ghost" onclick="closeTableModal()">Đóng</button>`;
+
+    if (status !== 'full' && status !== 'reserved') {
+      btns += `<button class="btn btn-primary" onclick="createOrderFromTable('${tableId}')">+ Tạo đơn</button>`;
+    }
+    if (activeOrder) {
+      btns += `<button class="btn btn-gold" onclick="window.location.href='orders.html'">Xem đơn</button>`;
+    }
+    btns += `<button class="btn btn-ghost" onclick="saveTableChanges('${tableId}')">Lưu thay đổi</button>`;
+    actions.innerHTML = btns;
+
+    document.getElementById('table-modal').classList.add('open');
+  };
+
+  window.closeTableModal = function() {
+    document.getElementById('table-modal').classList.remove('open');
+  };
+
+  window.saveTableChanges = function(tableId) {
+    const t = tables.find(t => t.id === tableId);
+    if (!t) return;
+    const guests = parseInt(document.getElementById('guests-input').value) || 0;
+    const reserveTime = document.getElementById('reserve-time').value;
+
+    t.currentGuests = Math.min(guests, t.seats);
+    t.reservedAt    = reserveTime || null;
+    t.status        = reserveTime ? 'reserved' : getTableStatus({ ...t, currentGuests: guests, status: 'free' });
+
+    showToast('Đã cập nhật thông tin bàn', 'success');
+    closeTableModal();
+    renderGrid();
+  };
+
+  window.createOrderFromTable = function(tableId) {
+    sessionStorage.setItem('new_order_table', tableId);
+    window.location.href = 'orders.html?new=1';
+  };
+
+  document.getElementById('table-modal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('table-modal')) closeTableModal();
+  });
+
+  renderGrid();
+</script>
+</body>
+</html>
