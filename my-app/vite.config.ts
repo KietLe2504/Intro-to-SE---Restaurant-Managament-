@@ -4,11 +4,19 @@ import electron from 'vite-plugin-electron/simple'
 
 export default defineConfig({
   root: path.join(__dirname, 'src/render'),
+
+  server: {
+    headers: {
+      'Cache-Control': 'no-store',  // ← fix lỗi 431 header too large
+    },
+  },
+
   build: {
     rollupOptions: {
       input: {
         main:      path.join(__dirname, 'src/render/index.html'),
         login:     path.join(__dirname, 'src/render/pages/login.html'),
+        register:  path.join(__dirname, 'src/render/pages/register.html'),
         dashboard: path.join(__dirname, 'src/render/pages/dashboard.html'),
         tables:    path.join(__dirname, 'src/render/pages/tables.html'),
         orders:    path.join(__dirname, 'src/render/pages/orders.html'),
@@ -19,6 +27,7 @@ export default defineConfig({
       }
     }
   },
+
   plugins: [
     electron({
       main: {

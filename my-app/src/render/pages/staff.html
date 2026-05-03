@@ -17,8 +17,12 @@
     <div class="page-content">
 
       <div class="page-toolbar">
-        <input class="search-input" placeholder="🔍 Tìm nhân viên..." id="staff-search" oninput="renderStaff()"/>
-        <button class="btn btn-primary" onclick="window.location.href='login.html'">+ Tạo tài khoản mới</button>
+        <input class="search-input" placeholder="🔍 Tìm nhân viên..."
+               id="staff-search" oninput="renderStaff()"/>
+        <button class="btn btn-primary"
+                onclick="window.location.href='register.html'">
+          + Tạo tài khoản nhân viên
+        </button>
       </div>
 
       <div class="card" style="padding:0;overflow:hidden">
@@ -31,6 +35,7 @@
               <th>Số điện thoại</th>
               <th>Ngày tạo</th>
               <th>Đơn đã tạo</th>
+              <th>Thao tác</th>
             </tr>
           </thead>
           <tbody id="staff-tbody"></tbody>
@@ -40,40 +45,81 @@
     </div>
   </div>
 </div>
+
 <script type="module">
-  import { requireManager }                from '../js/auth.js';
-  import { renderSidebar, renderHeader }   from '../js/ui.js';
-  import { users, orders }                 from '../js/data.js';
+  import { requireManager }                                from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import { users, orders, syncUsers }                      from '../js/data.js';
 
   const session = requireManager();
   if (!session) throw new Error();
+
   renderSidebar('staff');
-  renderHeader({ title: 'Nhân viên', sub: `${users.length} tài khoản`, showBack: true, backUrl: 'dashboard.html' });
+  renderHeader({
+    title: 'Nhân viên',
+    sub: `${users.length} tài khoản`,
+    showBack: true,
+    backUrl: 'dashboard.html',
+  });
 
   const colors = ['#922B21','#0891b2','#b45309','#065f46','#7c3aed','#be123c'];
 
   window.renderStaff = function() {
     const q = document.getElementById('staff-search').value.toLowerCase();
-    const filtered = users.filter(u => u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q));
+    const filtered = users.filter(u =>
+      u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
+    );
 
     document.getElementById('staff-tbody').innerHTML = filtered.map((u, i) => {
       const orderCount = orders.filter(o => o.staffId === u.id).length;
+      const isCurrentUser = u.id === session.id;
       return `
         <tr>
           <td>
             <div class="staff-name-cell">
-              <div class="staff-avatar" style="background:${colors[i % colors.length]}">${u.name[0]}</div>
+              <div class="staff-avatar" style="background:${colors[i % colors.length]}">
+                ${u.name[0]}
+              </div>
               ${u.name}
+              ${isCurrentUser ? '<span class="badge badge-gold" style="font-size:10px">Bạn</span>' : ''}
             </div>
           </td>
           <td style="color:var(--muted);font-family:monospace">${u.username}</td>
-          <td><span class="badge ${u.role === 'manager' ? 'badge-red' : 'badge-blue'}">${u.role === 'manager' ? 'Quản lý' : 'Nhân viên'}</span></td>
+          <td>
+            <span class="badge ${u.role === 'manager' ? 'badge-red' : 'badge-blue'}">
+              ${u.role === 'manager' ? 'Quản lý' : 'Nhân viên'}
+            </span>
+          </td>
           <td style="color:var(--muted)">${u.phone || '—'}</td>
           <td style="color:var(--muted);font-size:12px">${u.createdAt}</td>
           <td><span class="badge badge-muted">${orderCount} đơn</span></td>
+          <td>
+            ${!isCurrentUser ? `
+              <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}', '${u.name}')">
+                Xóa
+              </button>
+            ` : '<span style="color:var(--muted);font-size:12px">—</span>'}
+          </td>
         </tr>
       `;
     }).join('');
+  };
+
+  window.deleteUser = function(userId, userName) {
+    confirmDialog({
+      title: 'Xóa tài khoản',
+      body: `Bạn có chắc muốn xóa tài khoản <strong>${userName}</strong>? Hành động này không thể hoàn tác.`,
+      confirmLabel: 'Xóa',
+      confirmClass: 'btn-danger',
+      onConfirm: () => {
+        const idx = users.findIndex(u => u.id === userId);
+        if (idx === -1) return;
+        users.splice(idx, 1);
+        syncUsers(); // lưu lại vào sessionStorage
+        showToast(`Đã xóa tài khoản ${userName}`, 'success');
+        renderStaff();
+      },
+    });
   };
 
   renderStaff();

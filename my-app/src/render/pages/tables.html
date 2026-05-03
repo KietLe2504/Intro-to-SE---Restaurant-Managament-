@@ -16,14 +16,21 @@
     <header class="top-header" id="top-header"></header>
     <div class="page-content">
 
-      <!-- Filter bar -->
       <div class="filter-bar">
         <span style="font-size:13px;font-weight:600;color:var(--text2)">Lọc:</span>
         <div class="filter-chip active" data-filter="all"     onclick="filterTables('all')">Tất cả</div>
-        <div class="filter-chip"       data-filter="free"     onclick="filterTables('free')">Trống</div>
-        <div class="filter-chip"       data-filter="partial"  onclick="filterTables('partial')">Chưa đầy</div>
-        <div class="filter-chip"       data-filter="full"     onclick="filterTables('full')">Đầy</div>
-        <div class="filter-chip"       data-filter="reserved" onclick="filterTables('reserved')">Đặt trước</div>
+        <div class="filter-chip"        data-filter="free"    onclick="filterTables('free')">Trống</div>
+        <div class="filter-chip"        data-filter="partial" onclick="filterTables('partial')">Chưa đầy</div>
+        <div class="filter-chip"        data-filter="full"    onclick="filterTables('full')">Đầy</div>
+        <div class="filter-chip"        data-filter="reserved" onclick="filterTables('reserved')">Đặt trước</div>
+      </div>
+
+      <div style="display:flex;gap:16px;margin-bottom:16px;font-size:12px;flex-wrap:wrap">
+        <span style="color:var(--green)">● Trống</span>
+        <span style="color:var(--orange)">● Chưa đầy</span>
+        <span style="color:var(--red)">● Đầy</span>
+        <span style="color:var(--blue)">● Đặt trước</span>
+        <span style="color:var(--muted);margin-left:auto" id="reservation-notice"></span>
       </div>
 
       <div class="tables-grid" id="tables-grid"></div>
@@ -32,7 +39,7 @@
   </div>
 </div>
 
-<!-- Modal: Table Detail / Action -->
+<!-- Modal chi tiết bàn -->
 <div class="modal-backdrop" id="table-modal">
   <div class="modal">
     <div class="modal-header">
@@ -41,99 +48,221 @@
     </div>
     <div class="modal-body">
       <div id="modal-table-info" style="margin-bottom:16px"></div>
-      <div class="form-group" id="guests-group">
-        <label class="form-label">Số khách (chỗ ngồi)</label>
-        <input class="form-input" type="number" id="guests-input" min="0" placeholder="Nhập số khách"/>
+
+      <!-- Tabs -->
+      <div class="login-tabs" id="modal-tabs" style="margin-bottom:16px">
+        <div class="login-tab active" data-mtab="guests"  onclick="switchModalTab('guests')">Cập nhật khách</div>
+        <div class="login-tab"        data-mtab="reserve" onclick="switchModalTab('reserve')">Đặt chỗ trước</div>
       </div>
-      <div class="form-group" id="reserve-group" style="display:none">
-        <label class="form-label">Giờ đặt trước</label>
-        <input class="form-input" type="time" id="reserve-time"/>
+
+      <!-- Tab: cập nhật khách -->
+      <div id="mtab-guests">
+        <div class="form-group">
+          <label class="form-label">Số khách hiện tại</label>
+          <input class="form-input" type="number" id="guests-input" min="0"/>
+        </div>
       </div>
+
+      <!-- Tab: đặt chỗ trước -->
+      <div id="mtab-reserve" style="display:none">
+        <div style="background:var(--blue-bg);border:1px solid rgba(21,101,192,0.2);
+                    border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;
+                    font-size:12px;color:var(--blue)">
+          🕐 Chỗ sẽ được giữ trong <strong>30 phút</strong>. Sau thời gian đó nếu khách
+          chưa đến, bàn sẽ tự động chuyển về Trống.
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tên khách đặt *</label>
+          <input class="form-input" type="text" id="reserve-name" placeholder="Nguyễn Văn A"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Số điện thoại</label>
+          <input class="form-input" type="tel" id="reserve-phone" placeholder="0901 234 567"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Giờ đặt (để trống = ngay bây giờ)</label>
+          <input class="form-input" type="time" id="reserve-time"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Số khách dự kiến *</label>
+          <input class="form-input" type="number" id="reserve-guests" min="1" placeholder="2"/>
+        </div>
+        <!-- Nút đặt chỗ — gọi hàm không truyền tham số, dùng selectedTableId bên trong -->
+        <button class="btn btn-primary btn-full" onclick="saveReservation()">
+          Xác nhận đặt chỗ
+        </button>
+      </div>
+
     </div>
     <div class="modal-footer" id="modal-table-actions"></div>
   </div>
 </div>
 
 <script type="module">
-  import { requireAuth }                 from '../js/auth.js';
-  import { renderSidebar, renderHeader, showToast } from '../js/ui.js';
-  import { tables, TABLE_STATUS_LABEL, getTableStatus, orders } from '../js/data.js';
+  import { requireAuth }  from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import { tables, orders, TABLE_STATUS_LABEL, getTableStatus, syncTables } from '../js/data.js';
 
   const session = requireAuth();
   if (!session) throw new Error();
-  renderSidebar('tables');
-  renderHeader({ title: 'Quản lý bàn', sub: `${tables.length} bàn`, showBack: true, backUrl: 'dashboard.html' });
 
-  let currentFilter = 'all';
-  let selectedTable = null;
+  renderSidebar('tables');
+  renderHeader({
+    title: 'Quản lý bàn',
+    sub: `${tables.length} bàn`,
+    showBack: true,
+    backUrl: 'dashboard.html',
+  });
+
+  let currentFilter   = 'all';
+  let selectedTableId = null; // biến module-level
 
   const statusClass = { free: 't-free', partial: 't-partial', full: 't-full', reserved: 't-reserved' };
   const statusBadge = { free: 'badge-green', partial: 'badge-orange', full: 'badge-red', reserved: 'badge-blue' };
 
+  // ── Check expired reservations ──
+  function checkExpiredReservations() {
+    const now = Date.now();
+    let changed = false;
+    tables.forEach(t => {
+      if (t.status === 'reserved' && t.reservedAt) {
+        const elapsed = (now - new Date(t.reservedAt).getTime()) / 1000 / 60;
+        if (elapsed >= 30) {
+          t.status         = 'free';
+          t.reservedAt     = null;
+          t.reservedBy     = null;
+          t.reservedPhone  = null;
+          t.reservedGuests = 0;
+          changed = true;
+          showToast(`Bàn ${t.num}: đặt chỗ hết hạn, chuyển về Trống`, 'warning');
+        }
+      }
+    });
+    if (changed) syncTables();
+  }
+
+  function getCountdown(reservedAt) {
+    if (!reservedAt) return null;
+    const remaining = 30 - (Date.now() - new Date(reservedAt).getTime()) / 60000;
+    if (remaining <= 0) return 'Hết hạn';
+    const m = Math.floor(remaining);
+    const s = Math.floor((remaining - m) * 60);
+    return `Còn ${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  // ── Filter ──
   window.filterTables = function(filter) {
     currentFilter = filter;
-    document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === filter));
+    document.querySelectorAll('.filter-chip').forEach(c =>
+      c.classList.toggle('active', c.dataset.filter === filter));
     renderGrid();
   };
 
+  // ── Render grid ──
   function renderGrid() {
-    const filtered = currentFilter === 'all' ? tables : tables.filter(t => t.status === currentFilter);
-    const grid = document.getElementById('tables-grid');
+    checkExpiredReservations();
 
-    grid.innerHTML = filtered.map(t => {
-      const status = getTableStatus(t);
+    const filtered = currentFilter === 'all'
+      ? tables
+      : tables.filter(t => getTableStatus(t) === currentFilter);
+
+    const reservedCount = tables.filter(t => t.status === 'reserved').length;
+    document.getElementById('reservation-notice').textContent =
+      reservedCount ? `⏳ ${reservedCount} bàn đang được đặt trước` : '';
+
+    document.getElementById('tables-grid').innerHTML = filtered.map(t => {
+      const status      = getTableStatus(t);
       const activeOrder = orders.find(o => o.tableId === t.id && o.status === 'unpaid');
+      const countdown   = status === 'reserved' ? getCountdown(t.reservedAt) : null;
+
       return `
         <div class="table-card ${statusClass[status]}" onclick="openTableModal('${t.id}')">
           <div class="table-num">Bàn ${t.num}</div>
           <div class="table-seats">Sức chứa: ${t.seats} người</div>
-          <div class="table-occupancy">Đang ngồi: ${t.currentGuests} / ${t.seats}</div>
-          <div class="table-status" style="margin-top:8px">
-            <span class="badge ${statusBadge[status]}">${TABLE_STATUS_LABEL[status]}</span>
+          <div class="table-occupancy">
+            ${status === 'reserved'
+              ? `Đặt bởi: <strong>${t.reservedBy || 'Khách'}</strong> · ${t.reservedGuests || 0} người`
+              : `Đang ngồi: ${t.currentGuests} / ${t.seats}`}
           </div>
-          ${t.reservedAt ? `<div style="font-size:11px;color:var(--blue);margin-top:4px">🕐 Đặt lúc ${t.reservedAt}</div>` : ''}
-          ${activeOrder ? `<div style="font-size:11px;color:var(--orange);margin-top:4px">📋 Có đơn đang mở</div>` : ''}
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span class="badge ${statusBadge[status]}">${TABLE_STATUS_LABEL[status]}</span>
+            ${countdown
+              ? `<span style="font-size:11px;color:var(--blue);font-weight:600">⏱ ${countdown}</span>`
+              : ''}
+          </div>
+          ${t.reservedPhone
+            ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">📞 ${t.reservedPhone}</div>`
+            : ''}
+          ${activeOrder
+            ? `<div style="font-size:11px;color:var(--orange);margin-top:4px">📋 Có đơn đang mở</div>`
+            : ''}
         </div>
       `;
     }).join('');
   }
 
+  // ── Mở modal ──
   window.openTableModal = function(tableId) {
-    selectedTable = tables.find(t => t.id === tableId);
-    if (!selectedTable) return;
+    selectedTableId = tableId; // ← lưu vào biến module
+    const t = tables.find(t => t.id === tableId);
+    if (!t) return;
 
-    const status = getTableStatus(selectedTable);
+    const status      = getTableStatus(t);
     const activeOrder = orders.find(o => o.tableId === tableId && o.status === 'unpaid');
+    const countdown   = status === 'reserved' ? getCountdown(t.reservedAt) : null;
 
-    document.getElementById('modal-table-title').textContent = `Bàn ${selectedTable.num}`;
+    document.getElementById('modal-table-title').textContent = `Bàn ${t.num}`;
     document.getElementById('modal-table-info').innerHTML = `
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
         <span class="badge ${statusBadge[status]}">${TABLE_STATUS_LABEL[status]}</span>
-        <span style="font-size:13px;color:var(--muted)">${selectedTable.seats} chỗ ngồi</span>
+        <span style="font-size:13px;color:var(--muted)">${t.seats} chỗ ngồi</span>
+        ${countdown ? `<span style="font-size:12px;color:var(--blue);font-weight:600">⏱ ${countdown}</span>` : ''}
       </div>
-      <div style="font-size:13px;color:var(--text2)">Hiện có <strong>${selectedTable.currentGuests}</strong> khách</div>
+      ${status === 'reserved' && t.reservedBy
+        ? `<div style="font-size:13px;color:var(--text2)">
+             Đặt bởi: <strong>${t.reservedBy}</strong>
+             ${t.reservedPhone ? `· 📞 ${t.reservedPhone}` : ''}
+             · ${t.reservedGuests || 0} khách
+           </div>`
+        : `<div style="font-size:13px;color:var(--text2)">
+             Hiện có <strong>${t.currentGuests}</strong> khách
+           </div>`}
     `;
 
-    document.getElementById('guests-input').value = selectedTable.currentGuests;
-    document.getElementById('reserve-time').value = selectedTable.reservedAt || '';
+    // Pre-fill
+    document.getElementById('guests-input').value   = t.currentGuests;
+    document.getElementById('reserve-name').value   = '';
+    document.getElementById('reserve-phone').value  = '';
+    document.getElementById('reserve-time').value   = '';
+    document.getElementById('reserve-guests').value = '';
 
-    // Show/hide reserve input
-    const showReserve = status === 'free' || status === 'reserved';
-    document.getElementById('reserve-group').style.display = showReserve ? '' : 'none';
-
-    // Actions
+    // Actions footer
     const actions = document.getElementById('modal-table-actions');
     let btns = `<button class="btn btn-ghost" onclick="closeTableModal()">Đóng</button>`;
 
-    if (status !== 'full' && status !== 'reserved') {
-      btns += `<button class="btn btn-primary" onclick="createOrderFromTable('${tableId}')">+ Tạo đơn</button>`;
+    if (status === 'reserved') {
+      btns += `
+        <button class="btn btn-gold"   onclick="arriveReservation()">✓ Khách đã đến</button>
+        <button class="btn btn-danger" onclick="cancelReservation()">Hủy đặt chỗ</button>
+      `;
+    } else {
+      btns += `<button class="btn btn-ghost" onclick="saveGuests()">Lưu khách</button>`;
+      if (status !== 'full') {
+        btns += `
+          <button class="btn btn-primary" onclick="goCreateOrder('${tableId}')">+ Tạo đơn</button>
+        `;
+      }
     }
     if (activeOrder) {
       btns += `<button class="btn btn-gold" onclick="window.location.href='orders.html'">Xem đơn</button>`;
     }
-    btns += `<button class="btn btn-ghost" onclick="saveTableChanges('${tableId}')">Lưu thay đổi</button>`;
     actions.innerHTML = btns;
 
+    // Ẩn tab đặt chỗ nếu bàn đang reserved
+    const reserveTab = document.querySelector('[data-mtab="reserve"]');
+    reserveTab.style.display = status === 'reserved' ? 'none' : '';
+
+    switchModalTab(status === 'reserved' ? 'guests' : 'guests');
     document.getElementById('table-modal').classList.add('open');
   };
 
@@ -141,31 +270,118 @@
     document.getElementById('table-modal').classList.remove('open');
   };
 
-  window.saveTableChanges = function(tableId) {
-    const t = tables.find(t => t.id === tableId);
+  window.switchModalTab = function(tab) {
+    document.querySelectorAll('[data-mtab]').forEach(el =>
+      el.classList.toggle('active', el.dataset.mtab === tab));
+    document.getElementById('mtab-guests').style.display  = tab === 'guests'  ? '' : 'none';
+    document.getElementById('mtab-reserve').style.display = tab === 'reserve' ? '' : 'none';
+  };
+
+  // ── Lưu số khách ──
+  window.saveGuests = function() {
+    const t      = tables.find(t => t.id === selectedTableId);
     if (!t) return;
     const guests = parseInt(document.getElementById('guests-input').value) || 0;
-    const reserveTime = document.getElementById('reserve-time').value;
-
-    t.currentGuests = Math.min(guests, t.seats);
-    t.reservedAt    = reserveTime || null;
-    t.status        = reserveTime ? 'reserved' : getTableStatus({ ...t, currentGuests: guests, status: 'free' });
-
+    if (guests > t.seats) return showToast(`Bàn chỉ có ${t.seats} chỗ!`, 'error');
+    t.currentGuests = guests;
+    t.status        = guests === 0 ? 'free' : guests >= t.seats ? 'full' : 'partial';
+    syncTables();
     showToast('Đã cập nhật thông tin bàn', 'success');
     closeTableModal();
     renderGrid();
   };
 
-  window.createOrderFromTable = function(tableId) {
+  // ── Xác nhận đặt chỗ ──
+  window.saveReservation = function() {
+    const t = tables.find(t => t.id === selectedTableId);
+    if (!t) return;
+
+    const name      = document.getElementById('reserve-name').value.trim();
+    const phone     = document.getElementById('reserve-phone').value.trim();
+    const guests    = parseInt(document.getElementById('reserve-guests').value) || 0;
+    const timeInput = document.getElementById('reserve-time').value;
+
+    if (!name)   return showToast('Vui lòng nhập tên khách!', 'error');
+    if (!guests) return showToast('Vui lòng nhập số khách!', 'error');
+    if (guests > t.seats) return showToast(`Bàn chỉ có ${t.seats} chỗ!`, 'error');
+
+    let reservedAt;
+    if (timeInput) {
+      const [h, m] = timeInput.split(':');
+      const d = new Date();
+      d.setHours(parseInt(h), parseInt(m), 0, 0);
+      if (d < new Date()) d.setDate(d.getDate() + 1);
+      reservedAt = d.toISOString();
+    } else {
+      reservedAt = new Date().toISOString();
+    }
+
+    t.status         = 'reserved';
+    t.reservedAt     = reservedAt;
+    t.reservedBy     = name;
+    t.reservedPhone  = phone || null;
+    t.reservedGuests = guests;
+    t.currentGuests  = 0;
+    syncTables();
+
+    showToast(`Đã đặt chỗ cho ${name} — Bàn ${t.num}`, 'success');
+    closeTableModal();
+    renderGrid();
+  };
+
+  // ── Khách đã đến ──
+  window.arriveReservation = function() {
+    const t = tables.find(t => t.id === selectedTableId);
+    if (!t) return;
+    t.currentGuests  = t.reservedGuests || 1;
+    t.status         = t.currentGuests >= t.seats ? 'full' : 'partial';
+    t.reservedAt     = null;
+    t.reservedBy     = null;
+    t.reservedPhone  = null;
+    t.reservedGuests = 0;
+    syncTables();
+    showToast(`Khách đã đến — Bàn ${t.num}`, 'success');
+    closeTableModal();
+    renderGrid();
+  };
+
+  // ── Hủy đặt chỗ ──
+  window.cancelReservation = function() {
+    confirmDialog({
+      title: 'Hủy đặt chỗ',
+      body:  'Bạn có chắc muốn hủy đặt chỗ này không?',
+      confirmLabel: 'Hủy đặt chỗ', confirmClass: 'btn-danger',
+      onConfirm: () => {
+        const t = tables.find(t => t.id === selectedTableId);
+        if (!t) return;
+        t.status         = 'free';
+        t.reservedAt     = null;
+        t.reservedBy     = null;
+        t.reservedPhone  = null;
+        t.reservedGuests = 0;
+        t.currentGuests  = 0;
+        syncTables();
+        showToast('Đã hủy đặt chỗ', 'warning');
+        closeTableModal();
+        renderGrid();
+      },
+    });
+  };
+
+  // ── Tạo đơn từ bàn ──
+  window.goCreateOrder = function(tableId) {
     sessionStorage.setItem('new_order_table', tableId);
     window.location.href = 'orders.html?new=1';
   };
 
-  document.getElementById('table-modal').addEventListener('click', (e) => {
+  // Close on backdrop click
+  document.getElementById('table-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('table-modal')) closeTableModal();
   });
 
+  // Render ban đầu + auto refresh 30s
   renderGrid();
+  setInterval(() => { checkExpiredReservations(); renderGrid(); }, 30000);
 </script>
 </body>
 </html>

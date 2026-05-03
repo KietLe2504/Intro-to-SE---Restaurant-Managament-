@@ -17,82 +17,126 @@
     <div class="login-logo">Nhà Hàng</div>
     <div class="login-logo-sub">Hệ thống quản lý nhà hàng</div>
 
-    <!-- Tabs: chỉ hiện Sign up nếu có manager session (đang tạo staff) -->
-    <div class="login-tabs" id="login-tabs">
+    <!-- Tabs -->
+    <div class="login-tabs">
       <div class="login-tab active" data-tab="signin" onclick="switchTab('signin')">Đăng nhập</div>
-      <div class="login-tab" data-tab="signup" id="signup-tab" style="display:none" onclick="switchTab('signup')">Tạo tài khoản</div>
+      <div class="login-tab"        data-tab="signup" onclick="switchTab('signup')">Đăng ký Manager</div>
     </div>
 
-    <!-- SIGN IN FORM -->
+    <!-- ── TAB ĐĂNG NHẬP — Staff + Manager ── -->
     <div id="form-signin">
       <div class="form-group">
         <label class="form-label">Tên đăng nhập</label>
-        <input class="form-input" id="login-username" type="text" placeholder="Nhập tên đăng nhập" autocomplete="username"/>
+        <input class="form-input" id="login-username" type="text"
+               placeholder="Nhập tên đăng nhập" autocomplete="username"/>
       </div>
       <div class="form-group">
         <label class="form-label">Mật khẩu</label>
-        <input class="form-input" id="login-password" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password"/>
+        <input class="form-input" id="login-password" type="password"
+               placeholder="Nhập mật khẩu" autocomplete="current-password"/>
       </div>
-      <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none"></div>
+      <div id="login-error"
+           style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;
+                  padding:10px 14px;background:var(--red-bg);border-radius:var(--radius)">
+      </div>
       <button class="btn btn-primary btn-full" onclick="handleLogin()">Đăng nhập</button>
-
       <div class="vn-divider" style="margin:20px 0 12px"></div>
       <div style="font-size:12px;color:var(--muted);text-align:center">
-        Tài khoản demo: <strong>manager</strong> / <strong>123456</strong>
+        Demo — Manager: <strong>manager / 123456</strong>
+        &nbsp;|&nbsp; Staff: <strong>staff1 / 123456</strong>
       </div>
     </div>
 
-    <!-- SIGN UP FORM (Manager only) -->
+    <!-- ── TAB ĐĂNG KÝ — Dành cho Manager mới chưa có tài khoản ── -->
     <div id="form-signup" style="display:none">
-      <div style="background:var(--gold-bg);border:1px solid rgba(212,160,23,0.3);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--gold-deep)">
-        ★ Chỉ quản lý mới có thể tạo tài khoản nhân viên.
+      <div style="background:var(--gold-bg);border:1px solid rgba(212,160,23,0.3);
+                  border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;
+                  font-size:12px;color:var(--gold-deep)">
+        ★ Trang đăng ký dành cho <strong>Quản lý (Manager)</strong> chưa có tài khoản.
+        Nhân viên không tự đăng ký được — liên hệ quản lý để được cấp tài khoản.
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Họ và tên *</label>
+        <input class="form-input" id="reg-name" type="text"
+               placeholder="Nguyễn Văn A" autocomplete="off"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Họ và tên</label>
-        <input class="form-input" id="reg-name" type="text" placeholder="Nguyễn Văn A"/>
+        <label class="form-label">Tên đăng nhập *</label>
+        <input class="form-input" id="reg-username" type="text"
+               placeholder="manager01" autocomplete="off"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Tên đăng nhập</label>
-        <input class="form-input" id="reg-username" type="text" placeholder="nhanvien01"/>
+        <label class="form-label">Mật khẩu *</label>
+        <input class="form-input" id="reg-password" type="password"
+               placeholder="Tối thiểu 6 ký tự" autocomplete="new-password"/>
       </div>
       <div class="form-group">
-        <label class="form-label">Mật khẩu</label>
-        <input class="form-input" id="reg-password" type="password" placeholder="Tối thiểu 6 ký tự"/>
+        <label class="form-label">Xác nhận mật khẩu *</label>
+        <input class="form-input" id="reg-confirm" type="password"
+               placeholder="Nhập lại mật khẩu" autocomplete="new-password"/>
       </div>
       <div class="form-group">
         <label class="form-label">Số điện thoại</label>
-        <input class="form-input" id="reg-phone" type="tel" placeholder="0901 234 567"/>
+        <input class="form-input" id="reg-phone" type="tel"
+               placeholder="0901 234 567"/>
       </div>
-      <div id="reg-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none"></div>
-      <button class="btn btn-gold btn-full" onclick="handleRegister()">Tạo tài khoản nhân viên</button>
+
+      <div id="reg-error"
+           style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;
+                  padding:10px 14px;background:var(--red-bg);border-radius:var(--radius)">
+      </div>
+      <div id="reg-success"
+           style="color:var(--green);font-size:13px;margin-bottom:12px;display:none;
+                  padding:10px 14px;background:var(--green-bg);border-radius:var(--radius)">
+      </div>
+
+      <button class="btn btn-gold btn-full" onclick="handleRegister()">
+        Tạo tài khoản Quản lý
+      </button>
+      <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:12px">
+        Đã có tài khoản? 
+        <span style="color:var(--red);cursor:pointer" onclick="switchTab('signin')">
+          Đăng nhập tại đây
+        </span>
+      </div>
     </div>
 
   </div>
 </div>
 
 <script type="module">
-  import { login, registerStaff, getSession, saveSession } from '../js/auth.js';
+  import { login, getSession } from '../js/auth.js';
+  import { users }             from '../js/data.js';
 
-  // Nếu đã login → về dashboard
-  const session = getSession();
-  if (session) window.location.href = 'dashboard.html';
-
-  // Nếu manager đang dùng app → cho phép tạo tài khoản staff
-  // (Manager mở trang login lại để tạo nhân viên)
-  if (session && session.role === 'manager') {
-    document.getElementById('signup-tab').style.display = '';
+  // Đã login rồi → về dashboard
+  if (getSession()) {
+    window.location.replace('dashboard.html');
   }
 
+  // ── Chuyển tab ──
   window.switchTab = function(tab) {
-    document.querySelectorAll('.login-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.login-tab')
+      .forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     document.getElementById('form-signin').style.display = tab === 'signin' ? '' : 'none';
     document.getElementById('form-signup').style.display = tab === 'signup' ? '' : 'none';
+    // Reset lỗi khi chuyển tab
+    document.getElementById('login-error').style.display = 'none';
+    document.getElementById('reg-error').style.display   = 'none';
+    document.getElementById('reg-success').style.display = 'none';
   };
 
+  // ── Đăng nhập (Staff + Manager) ──
   window.handleLogin = function() {
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
     const errEl    = document.getElementById('login-error');
+
+    if (!username || !password) {
+      errEl.textContent = 'Vui lòng nhập đầy đủ thông tin.';
+      errEl.style.display = 'block';
+      return;
+    }
 
     const result = login(username, password);
     if (!result.success) {
@@ -100,45 +144,72 @@
       errEl.style.display = 'block';
       return;
     }
+
     errEl.style.display = 'none';
-    window.location.href = 'dashboard.html';
+    window.location.replace('dashboard.html');
   };
 
+  // ── Đăng ký Manager mới ──
   window.handleRegister = function() {
-    const currentSession = getSession();
-    if (!currentSession || currentSession.role !== 'manager') {
-      document.getElementById('reg-error').textContent = 'Bạn không có quyền tạo tài khoản.';
-      document.getElementById('reg-error').style.display = 'block';
-      return;
-    }
+    const errEl     = document.getElementById('reg-error');
+    const successEl = document.getElementById('reg-success');
+    errEl.style.display     = 'none';
+    successEl.style.display = 'none';
 
-    const data = {
-      name:     document.getElementById('reg-name').value.trim(),
-      username: document.getElementById('reg-username').value.trim(),
-      password: document.getElementById('reg-password').value,
-      phone:    document.getElementById('reg-phone').value.trim(),
-    };
+    const name     = document.getElementById('reg-name').value.trim();
+    const username = document.getElementById('reg-username').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const confirm  = document.getElementById('reg-confirm').value;
+    const phone    = document.getElementById('reg-phone').value.trim();
 
-    const result = registerStaff(data, currentSession);
-    const errEl  = document.getElementById('reg-error');
-    if (!result.success) {
-      errEl.textContent = result.error;
+    // Validate
+    if (!name || !username || !password || !confirm) {
+      errEl.textContent = 'Vui lòng điền đầy đủ các trường bắt buộc (*).';
       errEl.style.display = 'block';
       return;
     }
-    errEl.style.display = 'none';
-    alert('Tạo tài khoản nhân viên thành công!');
-    // Reset form
-    ['reg-name','reg-username','reg-password','reg-phone'].forEach(id => document.getElementById(id).value = '');
+    if (password.length < 6) {
+      errEl.textContent = 'Mật khẩu tối thiểu 6 ký tự.';
+      errEl.style.display = 'block';
+      return;
+    }
+    if (password !== confirm) {
+      errEl.textContent = 'Mật khẩu xác nhận không khớp.';
+      errEl.style.display = 'block';
+      return;
+    }
+    const exists = users.find(u => u.username === username);
+    if (exists) {
+      errEl.textContent = 'Tên đăng nhập đã tồn tại.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    // Tạo tài khoản Manager mới
+    users.push({
+      id: 'u' + (users.length + 1),
+      name, username, password,
+      role: 'manager',
+      phone: phone || '',
+      createdAt: new Date().toISOString().split('T')[0],
+    });
+
+    // Hiện thành công + tự chuyển sang tab đăng nhập sau 2 giây
+    successEl.textContent = `✓ Tạo tài khoản "${name}" thành công! Đang chuyển sang đăng nhập...`;
+    successEl.style.display = 'block';
+
+    // Điền sẵn username vào form đăng nhập
+    document.getElementById('login-username').value = username;
+
+    setTimeout(() => switchTab('signin'), 2000);
   };
 
-  // Enter key
+  // ── Enter key ──
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      const activeTab = document.querySelector('.login-tab.active')?.dataset.tab;
-      if (activeTab === 'signin') window.handleLogin();
-      else window.handleRegister();
-    }
+    if (e.key !== 'Enter') return;
+    const activeTab = document.querySelector('.login-tab.active')?.dataset.tab;
+    if (activeTab === 'signin') handleLogin();
+    else handleRegister();
   });
 </script>
 </body>
