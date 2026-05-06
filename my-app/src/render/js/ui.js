@@ -216,6 +216,9 @@
          <div class="nav-item" data-page="revenue" onclick="window.location.href='${base}revenue.html'">
            <span class="nav-icon">📈</span> Doanh thu
          </div>
+         <div class="nav-item" data-page="promotion" onclick="window.location.href='${base}promotion.html'">
+           <span class="nav-icon">🎁</span> Khuyến mãi
+         </div>
          ` : ''}
        </nav>
        <div class="sidebar-footer">

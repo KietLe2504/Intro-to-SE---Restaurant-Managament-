@@ -139,3 +139,67 @@ export const ORDER_STATUS_LABEL = {
 export const CAT_LABEL = {
   starter: 'Khai vị', main: 'Món chính', dessert: 'Tráng miệng', drink: 'Đồ uống',
 };
+
+// ── Default promotions ──────────────────────────────────────
+
+const DEFAULT_PROMOTIONS = [
+  {
+    id: 'promo-001',
+    name: 'Giảm 10% cuối tuần',
+    code: 'WEEKEND10',
+    type: 'percent',      // 'percent' | 'fixed'
+    value: 10,            // 10% hoặc 10,000đ
+    minOrder: 200000,     // đơn tối thiểu
+    active: true,
+    createdAt: '2024-01-01',
+  },
+  {
+    id: 'promo-002',
+    name: 'Giảm 50k cho đơn từ 500k',
+    code: 'SAVE50K',
+    type: 'fixed',
+    value: 50000,
+    minOrder: 500000,
+    active: true,
+    createdAt: '2024-02-01',
+  },
+  {
+    id: 'promo-003',
+    name: 'Khai trương giảm 20%',
+    code: 'GRAND20',
+    type: 'percent',
+    value: 20,
+    minOrder: 0,
+    active: false,
+    createdAt: '2024-03-01',
+  },
+];
+
+export const promotions = loadFromStorage('ros_promotions', DEFAULT_PROMOTIONS);
+if (!sessionStorage.getItem('ros_promotions')) saveToStorage('ros_promotions', promotions);
+
+export function syncPromotions() { saveToStorage('ros_promotions', promotions); }
+
+/**
+ * Tính số tiền giảm của một promotion cho tổng đơn
+ * @param {Object} promo
+ * @param {number} orderTotal
+ * @returns {number} số tiền được giảm
+ */
+export function calcDiscount(promo, orderTotal) {
+  if (!promo || !promo.active) return 0;
+  if (orderTotal < promo.minOrder) return 0;
+  if (promo.type === 'percent') {
+    return Math.round(orderTotal * promo.value / 100);
+  }
+  return Math.min(promo.value, orderTotal); // không giảm quá tổng đơn
+}
+
+/**
+ * Tìm promotion theo code (không phân biệt hoa thường)
+ * @param {string} code
+ * @returns {Object|null}
+ */
+export function findPromoByCode(code) {
+  return promotions.find(p => p.code.toLowerCase() === code.trim().toLowerCase() && p.active) || null;
+}
