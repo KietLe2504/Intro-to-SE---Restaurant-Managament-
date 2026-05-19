@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
+import { promotions } from './src/render/js/data'
 
 export default defineConfig({
   root: path.join(__dirname, 'src/render'),
@@ -24,6 +25,8 @@ export default defineConfig({
         staff:     path.join(__dirname, 'src/render/pages/staff.html'),
         revenue:   path.join(__dirname, 'src/render/pages/revenue.html'),
         profile:   path.join(__dirname, 'src/render/pages/profile.html'),
+        promotion: path.join(__dirname, 'src/render/pages/promotion.html'),
+        membership: path.join(__dirname, 'src/render/pages/membership.html'),
       }
     }
   },

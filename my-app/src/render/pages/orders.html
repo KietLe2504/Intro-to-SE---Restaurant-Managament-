@@ -150,10 +150,13 @@
 
           <!-- Hoá đơn -->
           <div class="bill-panel">
-            <div class="card" style="padding:16px">
+            <div class="card" style="padding:16px;display:flex;flex-direction:column;height:100%;overflow:hidden">
               <div class="card-title" style="margin-bottom:12px">
                 Hoá đơn <span class="card-title-sub" id="bill-label"></span>
               </div>
+
+              <!-- Phần scroll: loại đơn, bàn, khuyến mãi, membership, danh sách món -->
+              <div style="flex:1;overflow-y:auto;padding-right:2px;margin:0 -4px;padding:0 4px 8px;">
 
               <!-- Loại đơn -->
               <div class="order-type-tabs">
@@ -213,11 +216,35 @@
                 <div id="promo-result" style="margin-top:8px;font-size:12px;display:none"></div>
               </div>
 
+              <!-- Membership -->
+              <div style="margin-bottom:14px">
+                <div style="font-size:11px;font-weight:600;color:var(--text2);
+                            text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">
+                  Thành viên
+                </div>
+                <div style="display:flex;gap:6px">
+                  <input class="form-input" id="member-phone-input"
+                         type="tel" placeholder="Nhập SĐT thành viên..."
+                         style="flex:1"/>
+                  <button class="btn btn-ghost" style="flex-shrink:0"
+                          onclick="lookupMember()">Tra cứu</button>
+                </div>
+                <div id="member-result" style="margin-top:8px;display:none"></div>
+              </div>
+
               <div class="bill-scroll" id="bill-items">
                 <div class="bill-empty-msg">Chọn món để thêm vào đơn</div>
               </div>
+              </div><!-- end scroll area -->
+
               <div class="bill-subtotal">
                 <span>Số món: <strong id="bill-count">0</strong></span>
+              </div>
+              <div id="redeem-row" style="display:none;justify-content:space-between;
+                            font-size:13px;color:var(--blue);
+                            padding:6px 0;border-top:1px solid var(--border)">
+                <span id="redeem-label">Dùng điểm</span>
+                <span id="redeem-amount" style="font-weight:600">-0đ</span>
               </div>
               <div id="discount-row" style="display:none;
                             display:none;justify-content:space-between;
@@ -316,6 +343,7 @@
     calcOrderTotal, ORDER_STATUS_LABEL, TABLE_STATUS_LABEL,
     CAT_LABEL, getTableStatus, syncOrders, syncTables,
     promotions, calcDiscount, findPromoByCode,
+    members, syncMembers, findMemberByPhone, calcEarnPoints, updateMemberAfterPayment, calcTier, MEMBERSHIP_TIERS, MAX_REDEEM_PER_ORDER,
   } from '../js/data.js';
 
   const session = requireAuth();
@@ -330,7 +358,9 @@
   let bill         = {};       // menuId → { name, price, qty }
   let orderType    = 'dine-in';
   let currentOrderId = null;
-  let appliedPromo   = null; // promotion đang áp dụng  // đơn đang xem chi tiết
+  let appliedPromo   = null; // promotion đang áp dụng
+  let appliedMember  = null; // member đang áp dụng
+  let redeemPoints   = 0;    // điểm muốn dùng  // đơn đang xem chi tiết
   let serveSelected  = {};    // menuId → qty muốn xác nhận
 
   const STATUS_BADGE = {
@@ -444,6 +474,155 @@
   // CREATE VIEW
   // ══════════════════════════════════════════════
 
+  // ══════════════════════════════════════════════
+  // MEMBERSHIP
+  // ══════════════════════════════════════════════
+
+  const TIER_COLOR = { bronze:'#CD7F32', silver:'#A8A9AD', gold:'#D4A017', diamond:'#60a5fa' };
+  const TIER_BADGE = { bronze:'🥉', silver:'🥈', gold:'🥇', diamond:'💎' };
+  const TIER_LABEL = { bronze:'Đồng', silver:'Bạc', gold:'Vàng', diamond:'Kim Cương' };
+
+  // Tra cứu member theo SĐT
+  window.lookupMember = function() {
+    const phone = document.getElementById('member-phone-input').value.trim();
+    const el    = document.getElementById('member-result');
+    if (!phone) { showToast('Vui lòng nhập SĐT!', 'warning'); return; }
+
+    const member = findMemberByPhone(phone);
+    el.style.display = 'block';
+
+    if (!member) {
+      el.innerHTML = `
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
+            SĐT chưa đăng ký thành viên.
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="createMemberInline('${phone}')">
+            + Đăng ký thành viên mới
+          </button>
+        </div>`;
+      appliedMember = null;
+      redeemPoints  = 0;
+      updateTotalDisplay();
+      return;
+    }
+
+    appliedMember = member;
+    redeemPoints  = 0;
+    const tier    = calcTier(member.totalSpend);
+    const maxRedeem = Math.min(member.points, MAX_REDEEM_PER_ORDER);
+
+    el.innerHTML = `
+      <div style="background:var(--surface2);border-radius:var(--radius);padding:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div style="width:32px;height:32px;border-radius:50%;
+                      background:linear-gradient(135deg,var(--red),var(--gold));
+                      display:flex;align-items:center;justify-content:center;
+                      color:#fff;font-weight:700;font-size:13px;flex-shrink:0">
+            ${member.name[0]}
+          </div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">${member.name}</div>
+            <div style="font-size:11px;color:var(--muted)">${member.phone}</div>
+          </div>
+          <span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;
+                       background:rgba(212,160,23,0.15);color:${TIER_COLOR[tier.tier]}">
+            ${TIER_BADGE[tier.tier]} ${TIER_LABEL[tier.tier]}
+          </span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+          Điểm hiện có: <strong style="color:var(--gold-deep)">${member.points.toLocaleString('vi')} điểm</strong>
+          ${maxRedeem > 0 ? `(dùng tối đa ${maxRedeem.toLocaleString('vi')}đ)` : '(không đủ điểm để dùng)'}
+        </div>
+        ${maxRedeem > 0 ? `
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:12px;color:var(--text2);flex-shrink:0">Dùng điểm:</span>
+            <input type="number" id="redeem-input" value="0" min="0" max="${maxRedeem}"
+                   style="width:100px;padding:5px 8px;border:1px solid var(--border);
+                          border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)"
+                   oninput="onRedeemChange(this.value, ${maxRedeem})"/>
+            <span style="font-size:12px;color:var(--muted)">/ ${maxRedeem.toLocaleString('vi')} tối đa</span>
+            <button class="btn btn-sm btn-ghost" onclick="useMaxRedeem(${maxRedeem})">Dùng tối đa</button>
+          </div>
+        ` : ''}
+        <button class="btn btn-sm btn-ghost" style="margin-top:8px"
+                onclick="clearMember()">✕ Bỏ thành viên</button>
+      </div>`;
+    updateTotalDisplay();
+  };
+
+  // Đăng ký thành viên nhanh ngay trong form tạo đơn
+  window.createMemberInline = function(phone) {
+    const name = prompt('Họ và tên khách hàng:');
+    if (!name) return;
+    const newMember = {
+      id: 'mem-' + String(members.length + 1).padStart(3, '0'),
+      name: name.trim(),
+      phone, email: '',
+      tier: 'bronze',
+      totalSpend: 0, points: 0,
+      createdAt: new Date().toISOString().split('T')[0],
+      orders: [],
+    };
+    members.push(newMember);
+    syncMembers();
+    showToast('Đã đăng ký thành viên mới!', 'success');
+    // Tự động lookup lại
+    document.getElementById('member-phone-input').value = phone;
+    lookupMember();
+  };
+
+  window.onRedeemChange = function(val, max) {
+    redeemPoints = Math.max(0, Math.min(parseInt(val) || 0, max));
+    updateTotalDisplay();
+  };
+
+  window.useMaxRedeem = function(max) {
+    redeemPoints = max;
+    const inp = document.getElementById('redeem-input');
+    if (inp) inp.value = max;
+    updateTotalDisplay();
+  };
+
+  window.clearMember = function() {
+    appliedMember = null;
+    redeemPoints  = 0;
+    document.getElementById('member-phone-input').value = '';
+    document.getElementById('member-result').style.display = 'none';
+    updateTotalDisplay();
+  };
+
+  // Cập nhật hiển thị tổng tiền khi có thay đổi promo/member/redeem
+  function updateTotalDisplay() {
+    const raw      = Object.values(bill).reduce((s,i) => s + i.price * i.qty, 0);
+    const discount = appliedPromo ? calcDiscount(appliedPromo, raw) : 0;
+    const afterPromo = raw - discount;
+    const redeem   = redeemPoints;
+    const final    = Math.max(0, afterPromo - redeem);
+
+    // Discount row (promo)
+    const discountRow = document.getElementById('discount-row');
+    if (discountRow) {
+      discountRow.style.display = discount > 0 ? 'flex' : 'none';
+      if (discount > 0) {
+        document.getElementById('discount-label').textContent  = `KM (${appliedPromo.code})`;
+        document.getElementById('discount-amount').textContent = '-' + discount.toLocaleString('vi') + 'đ';
+      }
+    }
+
+    // Redeem row (member points)
+    const redeemRow = document.getElementById('redeem-row');
+    if (redeemRow) {
+      redeemRow.style.display = redeem > 0 ? 'flex' : 'none';
+      if (redeem > 0) {
+        document.getElementById('redeem-label').textContent  = `Điểm thành viên`;
+        document.getElementById('redeem-amount').textContent = '-' + redeem.toLocaleString('vi') + 'đ';
+      }
+    }
+
+    document.getElementById('bill-total').textContent = final.toLocaleString('vi') + 'đ';
+  }
+
   // ── Populate promo select ──
   function populatePromoSelect() {
     const sel = document.getElementById('promo-select');
@@ -527,13 +706,15 @@
   };
 
   window.showCreate = function() {
-    bill = {}; orderType = 'dine-in'; appliedPromo = null;
+    bill = {}; orderType = 'dine-in'; appliedPromo = null; appliedMember = null; redeemPoints = 0;
     show('view-create');
 
     // Reset UI
     setType('dine-in');
     document.getElementById('take-name').value  = '';
     document.getElementById('take-phone').value = '';
+    document.getElementById('member-phone-input').value = '';
+    document.getElementById('member-result').style.display = 'none';
     document.getElementById('bill-label').textContent = '';
 
     // Populate bàn
@@ -641,14 +822,8 @@
         </div>
       `;
     }).join('');
-    const rawTotal = total;
     document.getElementById('bill-count').textContent = count;
-    if (appliedPromo) {
-      updateDiscountRow(appliedPromo, rawTotal);
-    } else {
-      document.getElementById('discount-row').style.display = 'none';
-      document.getElementById('bill-total').textContent = rawTotal.toLocaleString('vi') + 'đ';
-    }
+    updateTotalDisplay();
   }
 
   window.submitCreate = function() {
@@ -698,6 +873,20 @@
         order.finalTotal = rawTotal - discount;
       }
     }
+    // Lưu member vào đơn nếu có
+    if (appliedMember) {
+      order.memberId    = appliedMember.id;
+      order.memberName  = appliedMember.name;
+      order.memberPhone = appliedMember.phone;
+      order.redeemPoints = redeemPoints;
+      if (redeemPoints > 0 && order.finalTotal !== undefined) {
+        order.finalTotal = Math.max(0, order.finalTotal - redeemPoints);
+      } else if (redeemPoints > 0) {
+        const base = order.items.reduce((s,i) => s + i.price * i.qty, 0);
+        const disc = order.discount || 0;
+        order.finalTotal = Math.max(0, base - disc - redeemPoints);
+      }
+    }
     orders.push(order);
     syncOrders();
     showToast('Tạo đơn thành công!', 'success');
@@ -740,6 +929,8 @@
         : `<span class="badge badge-gold" style="font-size:10px">🥡 ${order.customerName || 'Mang về'}</span>`}
       <span style="font-size:12px;color:var(--muted)">${time}</span>
       <span style="font-size:12px;color:var(--muted)">NV: ${order.staffName}</span>
+      ${order.memberId ? `<span style="font-size:11px;padding:3px 8px;border-radius:20px;
+        background:rgba(212,160,23,0.15);color:var(--gold-deep)">👤 ${order.memberName}</span>` : ''}
     `;
 
     // Actions (header right)
@@ -841,6 +1032,16 @@
           <strong style="color:${allDone?'var(--green)':'var(--orange)'}">${served}/${order.items.length}</strong>
         </div>
         <div class="vn-divider" style="margin:8px 0"></div>
+        ${order.memberId ? `
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Thành viên</span>
+          <strong style="color:var(--gold-deep)">${order.memberName} (${order.memberPhone})</strong>
+        </div>` : ''}
+        ${order.redeemPoints ? `
+        <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--blue)">
+          <span>Dùng điểm</span>
+          <span>-${order.redeemPoints.toLocaleString('vi')}đ</span>
+        </div>` : ''}
         ${order.discount ? `
         <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--green)">
           <span>Khuyến mãi (${order.promoCode})</span>
@@ -961,8 +1162,21 @@
           const tbl = tables.find(t => t.id === order.tableId);
           if (tbl) { tbl.currentGuests = 0; tbl.status = 'free'; syncTables(); }
         }
+        // Tích điểm cho thành viên (không áp dụng đơn hủy)
+        if (order.memberId) {
+          const member = members.find(m => m.id === order.memberId);
+          if (member) {
+            const finalAmt = order.finalTotal !== undefined
+              ? order.finalTotal
+              : calcOrderTotal(order);
+            const redeemed = order.redeemPoints || 0;
+            const earned   = updateMemberAfterPayment(member, finalAmt, redeemed, order.id);
+            showToast('Thanh toán thành công! Tích ' + earned.toLocaleString('vi') + ' điểm cho ' + member.name, 'success');
+          }
+        } else {
+          showToast('Thanh toán thành công!', 'success');
+        }
         syncOrders();
-        showToast('Thanh toán thành công!', 'success');
         renderDetail();
         renderList();
       },

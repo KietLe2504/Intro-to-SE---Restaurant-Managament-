@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Thành viên — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+  <style>
+    .tier-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+    }
+    .tier-bronze  { background: rgba(205,127,50,0.15); color: #8B4513; }
+    .tier-silver  { background: rgba(168,169,173,0.2); color: #666; }
+    .tier-gold    { background: rgba(212,160,23,0.2);  color: var(--gold-deep); }
+    .tier-diamond { background: rgba(96,165,250,0.2);  color: var(--blue); }
+
+    .member-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 20px;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .member-card:hover { border-color: var(--red); box-shadow: var(--shadow-md); }
+
+    .progress-bar {
+      height: 6px; background: var(--surface2);
+      border-radius: 3px; overflow: hidden; margin-top: 6px;
+    }
+    .progress-fill {
+      height: 100%; border-radius: 3px;
+      background: linear-gradient(90deg, var(--red), var(--gold));
+      transition: width 0.4s ease;
+    }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <!-- ══ VIEW: DANH SÁCH ══ -->
+      <div id="view-list">
+        <div class="page-toolbar">
+          <input class="search-input" placeholder="🔍 Tìm theo tên hoặc SĐT..."
+                 id="member-search" oninput="renderList()"/>
+          <div class="filter-group">
+            <div class="filter-chip active" data-tf="all"     onclick="setTierFilter('all')">Tất cả</div>
+            <div class="filter-chip"        data-tf="bronze"  onclick="setTierFilter('bronze')">🥉 Đồng</div>
+            <div class="filter-chip"        data-tf="silver"  onclick="setTierFilter('silver')">🥈 Bạc</div>
+            <div class="filter-chip"        data-tf="gold"    onclick="setTierFilter('gold')">🥇 Vàng</div>
+            <div class="filter-chip"        data-tf="diamond" onclick="setTierFilter('diamond')">💎 Kim Cương</div>
+          </div>
+          <button class="btn btn-primary" onclick="openCreateModal()">+ Đăng ký thành viên</button>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px"
+             id="tier-stats"></div>
+
+        <!-- List -->
+        <div class="card" style="padding:0;overflow:hidden">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Thành viên</th>
+                <th>SĐT</th>
+                <th>Hạng</th>
+                <th>Tổng chi tiêu</th>
+                <th>Điểm hiện có</th>
+                <th>Đơn hàng</th>
+                <th>Ngày đăng ký</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="member-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ VIEW: CHI TIẾT MEMBER ══ -->
+      <div id="view-detail" style="display:none">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+          <button class="btn btn-ghost" onclick="showList()">← Quay lại</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 320px;gap:16px">
+          <!-- Left: info + history -->
+          <div>
+            <div class="card" style="margin-bottom:14px" id="detail-card"></div>
+            <div class="card">
+              <div class="card-title">Lịch sử đơn hàng</div>
+              <div id="detail-history"></div>
+            </div>
+          </div>
+          <!-- Right: points -->
+          <div class="card" id="detail-points-card"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal tạo thành viên -->
+<div class="modal-backdrop" id="create-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Đăng ký thành viên mới</div>
+      <button class="modal-close" onclick="closeCreateModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Họ và tên *</label>
+        <input class="form-input" id="new-name" placeholder="Nguyễn Văn A"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Số điện thoại *</label>
+        <input class="form-input" id="new-phone" type="tel" placeholder="0901 234 567"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input class="form-input" id="new-email" type="email" placeholder="example@email.com"/>
+      </div>
+      <div id="create-error"
+           style="color:var(--red);font-size:13px;padding:10px;background:var(--red-bg);
+                  border-radius:var(--radius);display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeCreateModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="createMember()">Đăng ký</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import {
+    members, syncMembers,
+    MEMBERSHIP_TIERS, calcTier, findMemberByPhone,
+    MAX_POINTS_PER_ORDER, MAX_REDEEM_PER_ORDER,
+  } from '../js/data.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+  renderSidebar('membership');
+  renderHeader({
+    title: 'Thành viên',
+    sub: `${members.length} thành viên`,
+    showBack: true, backUrl: 'dashboard.html',
+  });
+
+  let tierFilter    = 'all';
+  let currentMemberId = null;
+
+  const TIER_CLASS = {
+    bronze: 'tier-bronze', silver: 'tier-silver',
+    gold: 'tier-gold', diamond: 'tier-diamond',
+  };
+
+  // ── Tier stats ──
+  function renderStats() {
+    document.getElementById('tier-stats').innerHTML = MEMBERSHIP_TIERS.map(t => {
+      const count = members.filter(m => m.tier === t.tier).length;
+      return `
+        <div class="stat-card stat-card-gold">
+          <div class="stat-label">${t.badge} ${t.label}</div>
+          <div class="stat-value" style="font-size:24px">${count}</div>
+          <div class="stat-delta delta-muted">Tích lũy ${t.pointRate * 100}%</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ── Filter ──
+  window.setTierFilter = function(tf) {
+    tierFilter = tf;
+    document.querySelectorAll('[data-tf]').forEach(c =>
+      c.classList.toggle('active', c.dataset.tf === tf));
+    renderList();
+  };
+
+  // ── Render list ──
+  window.renderList = function() {
+    const q = document.getElementById('member-search').value.toLowerCase();
+    const list = members.filter(m => {
+      if (tierFilter !== 'all' && m.tier !== tierFilter) return false;
+      return m.name.toLowerCase().includes(q) || m.phone.includes(q);
+    }).sort((a, b) => b.totalSpend - a.totalSpend);
+
+    document.getElementById('member-tbody').innerHTML = list.map(m => {
+      const tier = calcTier(m.totalSpend);
+      const nextTier = MEMBERSHIP_TIERS[MEMBERSHIP_TIERS.findIndex(t => t.tier === tier.tier) + 1];
+      return `
+        <tr style="cursor:pointer" onclick="showDetail('${m.id}')">
+          <td style="font-weight:500">${m.name}</td>
+          <td style="color:var(--muted)">${m.phone}</td>
+          <td><span class="tier-badge ${TIER_CLASS[m.tier]}">${tier.badge} ${tier.label}</span></td>
+          <td style="font-weight:600">${m.totalSpend.toLocaleString('vi')}đ</td>
+          <td style="color:var(--gold-deep);font-weight:600">
+            ${m.points.toLocaleString('vi')} điểm
+          </td>
+          <td><span class="badge badge-muted">${m.orders.length} đơn</span></td>
+          <td style="color:var(--muted);font-size:12px">${m.createdAt}</td>
+          <td>
+            <button class="btn btn-sm btn-ghost"
+                    onclick="event.stopPropagation();showDetail('${m.id}')">
+              Chi tiết
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('') || `
+      <tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">
+        Không có thành viên nào
+      </td></tr>`;
+  };
+
+  // ── Detail ──
+  window.showDetail = function(memberId) {
+    currentMemberId = memberId;
+    const m = members.find(m => m.id === memberId);
+    if (!m) return;
+
+    show('view-detail');
+
+    const tier     = calcTier(m.totalSpend);
+    const nextTier = MEMBERSHIP_TIERS[MEMBERSHIP_TIERS.findIndex(t => t.tier === tier.tier) + 1];
+    const progress = nextTier
+      ? Math.min(100, Math.round((m.totalSpend - tier.minSpend) / (nextTier.minSpend - tier.minSpend) * 100))
+      : 100;
+
+    document.getElementById('detail-card').innerHTML = `
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+        <div style="width:56px;height:56px;border-radius:50%;
+                    background:linear-gradient(135deg,var(--red),var(--gold));
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:22px;font-weight:700;color:#fff;flex-shrink:0">
+          ${m.name[0]}
+        </div>
+        <div>
+          <div style="font-family:var(--font-display);font-size:20px;font-weight:700">${m.name}</div>
+          <div style="font-size:13px;color:var(--muted)">${m.phone}</div>
+          ${m.email ? `<div style="font-size:12px;color:var(--muted)">${m.email}</div>` : ''}
+        </div>
+        <span class="tier-badge ${TIER_CLASS[m.tier]}" style="margin-left:auto;font-size:14px;padding:5px 14px">
+          ${tier.badge} ${tier.label}
+        </span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div style="background:var(--surface2);padding:14px;border-radius:var(--radius)">
+          <div class="stat-label">Tổng chi tiêu</div>
+          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--red)">
+            ${m.totalSpend.toLocaleString('vi')}đ
+          </div>
+        </div>
+        <div style="background:var(--surface2);padding:14px;border-radius:var(--radius)">
+          <div class="stat-label">Điểm tích lũy</div>
+          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--gold-deep)">
+            ${m.points.toLocaleString('vi')} điểm
+          </div>
+        </div>
+      </div>
+
+      ${nextTier ? `
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px">
+            <span>${tier.badge} ${tier.label}</span>
+            <span>Còn ${(nextTier.minSpend - m.totalSpend).toLocaleString('vi')}đ lên ${nextTier.badge} ${nextTier.label}</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:${progress}%"></div>
+          </div>
+        </div>
+      ` : `
+        <div style="text-align:center;font-size:13px;color:var(--gold-deep);
+                    padding:8px;background:var(--gold-bg);border-radius:var(--radius)">
+          💎 Đã đạt hạng cao nhất!
+        </div>
+      `}
+    `;
+
+    // Points card
+    document.getElementById('detail-points-card').innerHTML = `
+      <div class="card-title">Điểm & Quyền lợi</div>
+      <div style="font-size:13px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Điểm hiện có</span>
+          <strong style="color:var(--gold-deep)">${m.points.toLocaleString('vi')} điểm</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Tỉ lệ tích điểm</span>
+          <strong>${tier.pointRate * 100}% giá trị đơn</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Tối đa/đơn</span>
+          <strong>${MAX_POINTS_PER_ORDER.toLocaleString('vi')} điểm</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Dùng tối đa/đơn</span>
+          <strong>${MAX_REDEEM_PER_ORDER.toLocaleString('vi')}đ</strong>
+        </div>
+        <div class="vn-divider"></div>
+        <div style="background:var(--gold-bg);border-radius:var(--radius);
+                    padding:12px;font-size:12px;color:var(--gold-deep)">
+          💡 1 điểm = 1đ khi thanh toán
+        </div>
+        ${session.role === 'manager' ? `
+          <button class="btn btn-ghost btn-full" onclick="adjustPoints('${m.id}')">
+            Điều chỉnh điểm
+          </button>
+        ` : ''}
+      </div>
+    `;
+
+    // History
+    const hist = [...m.orders].reverse();
+    document.getElementById('detail-history').innerHTML = hist.length
+      ? hist.map(h => `
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0;
+                      border-bottom:1px solid var(--border)">
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500">
+                Đơn #${h.orderId.replace('ord-','')}
+              </div>
+              <div style="font-size:11px;color:var(--muted)">
+                ${new Date(h.date).toLocaleDateString('vi')}
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:13px;font-weight:600">${h.amount.toLocaleString('vi')}đ</div>
+              <div style="font-size:11px;color:var(--green)">+${h.earned.toLocaleString('vi')} điểm</div>
+              ${h.redeemed ? `<div style="font-size:11px;color:var(--red)">-${h.redeemed.toLocaleString('vi')} điểm</div>` : ''}
+            </div>
+          </div>
+        `).join('')
+      : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có đơn nào</div>';
+  };
+
+  // ── Tạo thành viên ──
+  window.openCreateModal = function() {
+    ['new-name','new-phone','new-email'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('create-error').style.display = 'none';
+    document.getElementById('create-modal').classList.add('open');
+  };
+
+  window.closeCreateModal = function() {
+    document.getElementById('create-modal').classList.remove('open');
+  };
+
+  window.createMember = function() {
+    const errEl = document.getElementById('create-error');
+    const name  = document.getElementById('new-name').value.trim();
+    const phone = document.getElementById('new-phone').value.trim();
+    const email = document.getElementById('new-email').value.trim();
+
+    if (!name)  { errEl.textContent = 'Vui lòng nhập họ tên.'; errEl.style.display = 'block'; return; }
+    if (!phone) { errEl.textContent = 'Vui lòng nhập số điện thoại.'; errEl.style.display = 'block'; return; }
+
+    const dup = findMemberByPhone(phone);
+    if (dup) {
+      errEl.textContent = `SĐT này đã đăng ký thành viên (${dup.name}).`;
+      errEl.style.display = 'block';
+      return;
+    }
+
+    members.push({
+      id: 'mem-' + String(members.length + 1).padStart(3, '0'),
+      name, phone, email,
+      tier: 'bronze',
+      totalSpend: 0,
+      points: 0,
+      createdAt: new Date().toISOString().split('T')[0],
+      orders: [],
+    });
+
+    syncMembers();
+    showToast(`Đã đăng ký thành viên ${name}!`, 'success');
+    closeCreateModal();
+    renderStats();
+    renderList();
+  };
+
+  // ── Điều chỉnh điểm (Manager) ──
+  window.adjustPoints = function(memberId) {
+    const m = members.find(m => m.id === memberId);
+    if (!m) return;
+
+    const amount = prompt(`Điều chỉnh điểm cho ${m.name}\nNhập số dương để cộng, số âm để trừ:\n(Hiện có: ${m.points.toLocaleString('vi')} điểm)`);
+    if (amount === null) return;
+    const delta = parseInt(amount);
+    if (isNaN(delta)) { showToast('Số điểm không hợp lệ', 'error'); return; }
+
+    m.points = Math.max(0, m.points + delta);
+    syncMembers();
+    showToast(`Đã ${delta >= 0 ? 'cộng' : 'trừ'} ${Math.abs(delta).toLocaleString('vi')} điểm`, 'success');
+    showDetail(memberId);
+  };
+
+  function show(viewId) {
+    ['view-list','view-detail'].forEach(id =>
+      document.getElementById(id).style.display = id === viewId ? '' : 'none');
+  }
+
+  window.showList = function() {
+    currentMemberId = null;
+    show('view-list');
+    renderStats();
+    renderList();
+  };
+
+  // Close backdrop
+  document.getElementById('create-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('create-modal')) closeCreateModal();
+  });
+
+  renderStats();
+  renderList();
+</script>
+</body>
+</html>

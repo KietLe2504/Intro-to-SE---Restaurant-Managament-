@@ -203,3 +203,98 @@ export function calcDiscount(promo, orderTotal) {
 export function findPromoByCode(code) {
   return promotions.find(p => p.code.toLowerCase() === code.trim().toLowerCase() && p.active) || null;
 }
+
+// ── Membership Tiers ────────────────────────────────────────
+
+export const MEMBERSHIP_TIERS = [
+  { tier: 'bronze',  label: 'Đồng',   color: '#CD7F32', minSpend: 0,          pointRate: 0.10, badge: '🥉' },
+  { tier: 'silver',  label: 'Bạc',    color: '#A8A9AD', minSpend: 10000000,   pointRate: 0.15, badge: '🥈' },
+  { tier: 'gold',    label: 'Vàng',   color: '#D4A017', minSpend: 30000000,   pointRate: 0.20, badge: '🥇' },
+  { tier: 'diamond', label: 'Kim Cương', color: '#60a5fa', minSpend: 50000000, pointRate: 0.25, badge: '💎' },
+];
+
+// Điểm = % tổng đơn, tối đa 50,000đ/đơn (50,000 điểm = 50,000đ)
+export const MAX_POINTS_PER_ORDER = 50000;
+// Dùng điểm tối đa 500,000đ/đơn
+export const MAX_REDEEM_PER_ORDER = 500000;
+
+// ── Default members ──────────────────────────────────────────
+
+const DEFAULT_MEMBERS = [
+  {
+    id: 'mem-001',
+    name: 'Nguyễn Văn Khách',
+    phone: '0901 111 333',
+    email: '',
+    tier: 'gold',
+    totalSpend: 35000000,
+    points: 120000,
+    createdAt: '2024-01-15',
+    orders: [],
+  },
+  {
+    id: 'mem-002',
+    name: 'Trần Thị Mua',
+    phone: '0902 222 444',
+    email: '',
+    tier: 'silver',
+    totalSpend: 12000000,
+    points: 45000,
+    createdAt: '2024-03-01',
+    orders: [],
+  },
+];
+
+export const members = loadFromStorage('ros_members', DEFAULT_MEMBERS);
+if (!sessionStorage.getItem('ros_members')) saveToStorage('ros_members', members);
+
+export function syncMembers() { saveToStorage('ros_members', members); }
+
+// ── Membership helpers ───────────────────────────────────────
+
+/**
+ * Tìm member theo SĐT
+ */
+export function findMemberByPhone(phone) {
+  const clean = phone.replace(/\s/g, '');
+  return members.find(m => m.phone.replace(/\s/g, '') === clean) || null;
+}
+
+/**
+ * Tính tier dựa trên totalSpend
+ */
+export function calcTier(totalSpend) {
+  const tiers = [...MEMBERSHIP_TIERS].reverse();
+  return tiers.find(t => totalSpend >= t.minSpend) || MEMBERSHIP_TIERS[0];
+}
+
+/**
+ * Tính điểm tích lũy cho một đơn
+ * @param {Object} member
+ * @param {number} orderTotal - tổng đơn sau discount
+ * @returns {number} điểm tích lũy
+ */
+export function calcEarnPoints(member, orderTotal) {
+  const tier  = calcTier(member.totalSpend);
+  const earned = Math.round(orderTotal * tier.pointRate);
+  return Math.min(earned, MAX_POINTS_PER_ORDER);
+}
+
+/**
+ * Cập nhật member sau khi thanh toán
+ * @param {Object} member
+ * @param {number} finalTotal - số tiền thực tế thanh toán
+ * @param {number} redeemed   - điểm đã dùng
+ * @param {string} orderId
+ */
+export function updateMemberAfterPayment(member, finalTotal, redeemed, orderId) {
+  const earned = calcEarnPoints(member, finalTotal);
+  member.totalSpend += finalTotal;
+  member.points     += earned;
+  member.points     -= redeemed;
+  if (member.points < 0) member.points = 0;
+  member.tier = calcTier(member.totalSpend).tier;
+  member.orders.push({ orderId, amount: finalTotal, earned, redeemed, date: new Date().toISOString() });
+  syncMembers();
+  return earned;
+}

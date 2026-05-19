@@ -207,7 +207,9 @@
          <div class="nav-item" data-page="menu" onclick="window.location.href='${base}menu.html'">
            <span class="nav-icon">🍽️</span> Thực đơn
          </div>
-   
+         <div class="nav-item" data-page="membership" onclick="window.location.href='${base}membership.html'">
+           <span class="nav-icon">🎫</span> Thành viên
+         </div>
          ${isManager ? `
          <div class="nav-group-label">Quản lý</div>
          <div class="nav-item" data-page="staff" onclick="window.location.href='${base}staff.html'">
