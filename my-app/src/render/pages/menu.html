@@ -1,6 +1,3 @@
-<!-- ============================================================
-menu.html
-============================================================ -->
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -18,35 +15,103 @@ menu.html
   <div class="main-area">
     <header class="top-header" id="top-header"></header>
     <div class="page-content">
+
       <div class="page-toolbar">
-        <input class="search-input" placeholder="🔍 Tìm món ăn..." id="menu-search" oninput="renderMenu()"/>
-        <div class="filter-group" id="cat-filters">
+        <input class="search-input" placeholder="🔍 Tìm món ăn..."
+               id="menu-search" oninput="renderMenu()"/>
+        <div class="filter-group">
           <div class="filter-chip active" data-cat="all"     onclick="setCat('all')">Tất cả</div>
           <div class="filter-chip"        data-cat="starter" onclick="setCat('starter')">Khai vị</div>
           <div class="filter-chip"        data-cat="main"    onclick="setCat('main')">Món chính</div>
           <div class="filter-chip"        data-cat="dessert" onclick="setCat('dessert')">Tráng miệng</div>
           <div class="filter-chip"        data-cat="drink"   onclick="setCat('drink')">Đồ uống</div>
         </div>
+        <!-- Chỉ Manager thấy nút thêm món -->
+        <button id="btn-add" class="btn btn-primary" style="display:none"
+                onclick="window.openModal()">+ Thêm món</button>
       </div>
+
       <div class="menu-grid" id="menu-grid"></div>
     </div>
   </div>
 </div>
+
+<!-- Modal thêm / sửa món — Manager only -->
+<div class="modal-backdrop" id="menu-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Thêm món mới</div>
+      <button class="modal-close" onclick="window.closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Tên món *</label>
+        <input class="form-input" id="f-name" placeholder="VD: Bò lúc lắc"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Danh mục *</label>
+        <select class="form-select" id="f-cat">
+          <option value="starter">Khai vị</option>
+          <option value="main">Món chính</option>
+          <option value="dessert">Tráng miệng</option>
+          <option value="drink">Đồ uống</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Emoji</label>
+        <input class="form-input" id="f-emoji" placeholder="🍜" maxlength="4"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Giá (đ) *</label>
+        <input class="form-input" id="f-price" type="number" min="0" placeholder="85000"/>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="f-available" checked style="accent-color:var(--red)"/>
+          Còn món (có thể gọi)
+        </label>
+      </div>
+      <div id="modal-error"
+           style="color:var(--red);font-size:13px;padding:10px;background:var(--red-bg);
+                  border-radius:var(--radius);display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="window.closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="window.saveItem()">Lưu</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
-  import { requireAuth }                   from '../js/auth.js';
-  import { renderSidebar, renderHeader }   from '../js/ui.js';
-  import { menuItems, CAT_LABEL }          from '../js/data.js';
+  import { requireAuth }   from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import { menuItems, CAT_LABEL, syncMenu } from '../js/data.js';
 
   const session = requireAuth();
   if (!session) throw new Error();
+
+  const isManager = session.role === 'manager';
+
   renderSidebar('menu');
-  renderHeader({ title: 'Thực đơn', sub: `${menuItems.length} món`, showBack: true, backUrl: 'dashboard.html' });
+  renderHeader({
+    title: 'Thực đơn',
+    sub: `${menuItems.length} món`,
+    showBack: true,
+    backUrl: 'dashboard.html',
+  });
+
+  // Hiện nút thêm món nếu là Manager
+  if (isManager) {
+    document.getElementById('btn-add').style.display = '';
+  }
 
   let currentCat = 'all';
+  let editingId  = null;
 
   window.setCat = function(cat) {
     currentCat = cat;
-    document.querySelectorAll('[data-cat]').forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+    document.querySelectorAll('[data-cat]').forEach(c =>
+      c.classList.toggle('active', c.dataset.cat === cat));
     renderMenu();
   };
 
@@ -55,6 +120,7 @@ menu.html
     const items = menuItems.filter(m =>
       (currentCat === 'all' || m.cat === currentCat) && m.name.toLowerCase().includes(q)
     );
+
     document.getElementById('menu-grid').innerHTML = items.map(m => `
       <div class="menu-card">
         <div class="menu-card-img">${m.emoji}</div>
@@ -63,12 +129,112 @@ menu.html
           <div class="menu-card-cat">${CAT_LABEL[m.cat]}</div>
           <div class="menu-card-footer">
             <div class="menu-card-price">${m.price.toLocaleString('vi')}đ</div>
-            <span class="badge ${m.available ? 'badge-green' : 'badge-red'}">${m.available ? 'Còn' : 'Hết'}</span>
+            <span class="badge ${m.available ? 'badge-green' : 'badge-red'}">
+              ${m.available ? 'Còn' : 'Hết'}
+            </span>
           </div>
+          ${isManager ? `
+            <div style="display:flex;gap:6px;margin-top:10px">
+              <button class="btn btn-sm btn-ghost" style="flex:1"
+                      onclick="event.stopPropagation();window.editItem('${m.id}')">
+                Sửa
+              </button>
+              <button class="btn btn-sm btn-danger"
+                      onclick="event.stopPropagation();window.deleteItem('${m.id}')">
+                Xóa
+              </button>
+            </div>
+          ` : ''}
         </div>
       </div>
-    `).join('') || '<div style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">Không tìm thấy món</div>';
+    `).join('') || `
+      <div style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">
+        Không tìm thấy món nào
+      </div>`;
   };
+
+  // ── Modal ──
+  window.openModal = function() {
+    editingId = null;
+    document.getElementById('modal-title').textContent = 'Thêm món mới';
+    document.getElementById('f-name').value      = '';
+    document.getElementById('f-cat').value       = 'main';
+    document.getElementById('f-emoji').value     = '';
+    document.getElementById('f-price').value     = '';
+    document.getElementById('f-available').checked = true;
+    document.getElementById('modal-error').style.display = 'none';
+    document.getElementById('menu-modal').classList.add('open');
+  };
+
+  window.editItem = function(id) {
+    const m = menuItems.find(m => m.id === id);
+    if (!m) return;
+    editingId = id;
+    document.getElementById('modal-title').textContent  = 'Sửa món';
+    document.getElementById('f-name').value             = m.name;
+    document.getElementById('f-cat').value              = m.cat;
+    document.getElementById('f-emoji').value            = m.emoji;
+    document.getElementById('f-price').value            = m.price;
+    document.getElementById('f-available').checked      = m.available;
+    document.getElementById('modal-error').style.display = 'none';
+    document.getElementById('menu-modal').classList.add('open');
+  };
+
+  window.closeModal = function() {
+    document.getElementById('menu-modal').classList.remove('open');
+    editingId = null;
+  };
+
+  window.saveItem = function() {
+    const errEl = document.getElementById('modal-error');
+    errEl.style.display = 'none';
+
+    const name      = document.getElementById('f-name').value.trim();
+    const cat       = document.getElementById('f-cat').value;
+    const emoji     = document.getElementById('f-emoji').value.trim() || '🍽️';
+    const price     = parseInt(document.getElementById('f-price').value);
+    const available = document.getElementById('f-available').checked;
+
+    if (!name)          { errEl.textContent = 'Vui lòng nhập tên món.';  errEl.style.display = 'block'; return; }
+    if (!price || price <= 0) { errEl.textContent = 'Vui lòng nhập giá hợp lệ.'; errEl.style.display = 'block'; return; }
+
+    if (editingId) {
+      const m = menuItems.find(m => m.id === editingId);
+      if (m) { m.name = name; m.cat = cat; m.emoji = emoji; m.price = price; m.available = available; }
+    } else {
+      menuItems.push({
+        id: 'm' + (menuItems.length + 1),
+        name, cat, emoji, price, available,
+      });
+    }
+
+    syncMenu();
+    showToast(editingId ? 'Đã cập nhật món!' : 'Đã thêm món mới!', 'success');
+    closeModal();
+    renderMenu();
+  };
+
+  window.deleteItem = function(id) {
+    const m = menuItems.find(m => m.id === id);
+    if (!m) return;
+    confirmDialog({
+      title: 'Xóa món',
+      body: `Bạn có chắc muốn xóa <strong>${m.name}</strong>?`,
+      confirmLabel: 'Xóa', confirmClass: 'btn-danger',
+      onConfirm: () => {
+        const idx = menuItems.findIndex(m => m.id === id);
+        if (idx !== -1) menuItems.splice(idx, 1);
+        syncMenu();
+        showToast('Đã xóa món', 'success');
+        renderMenu();
+      },
+    });
+  };
+
+  // Close on backdrop
+  document.getElementById('menu-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('menu-modal')) closeModal();
+  });
 
   renderMenu();
 </script>
