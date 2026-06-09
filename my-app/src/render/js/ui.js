@@ -116,7 +116,7 @@
            <div class="user-avatar">${session.name[0]}</div>
            <div>
              <div class="user-info-name">${session.name}</div>
-             <div class="user-info-role">${session.role === 'manager' ? 'Quản lý' : 'Nhân viên'}</div>
+             <div class="user-info-role">${session.role === 'Manager' ? 'Quản lý' : 'Nhân viên'}</div>
            </div>
            <span class="dropdown-arrow">▼</span>
          </div>
@@ -180,7 +180,7 @@
      const sidebar = document.getElementById('sidebar');
      if (!sidebar) return;
    
-     const isManager = session.role === 'manager';
+     const isManager = session.role === 'Manager';
      const base = '../pages/';
    
      sidebar.innerHTML = `

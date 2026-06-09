@@ -50,7 +50,7 @@
 <script type="module">
   import { requireAuth }               from '../js/auth.js';
   import { renderSidebar, renderHeader } from '../js/ui.js';
-  import { orders, tables, calcOrderTotal, TABLE_STATUS_LABEL, ORDER_STATUS_LABEL } from '../js/data.js';
+  import { apiGetTables, apiGetOrders }  from '../js/api.js';
 
   const session = requireAuth();
   if (!session) throw new Error('Not authenticated');
@@ -58,56 +58,111 @@
   renderSidebar('dashboard');
   renderHeader({ title: 'Dashboard', sub: 'Tổng quan hôm nay', showBack: false });
 
-  // ── Stats ──
-  const paid      = orders.filter(o => o.status === 'paid');
-  const unpaid    = orders.filter(o => o.status === 'unpaid');
-  const totalRev  = paid.reduce((s, o) => s + calcOrderTotal(o), 0);
-  const freeCount = tables.filter(t => t.status === 'free').length;
+  const statusBadge = { Pending: 'badge-orange', Paid: 'badge-green', Cancelled: 'badge-muted' };
+  const statusLabel = { Pending: 'Chưa thanh toán', Paid: 'Đã thanh toán', Cancelled: 'Đã hủy' };
 
-  const statsData = [
-    { label: 'Doanh thu hôm nay', value: totalRev.toLocaleString('vi') + 'đ', delta: '↑ 12%', deltaClass: 'delta-up', accent: true },
-    { label: 'Đơn chưa thanh toán', value: unpaid.length, delta: 'Cần xử lý', deltaClass: 'delta-muted', accent: true },
-    { label: 'Bàn đang trống', value: `${freeCount}/${tables.length}`, delta: `${tables.length - freeCount} bàn có khách`, deltaClass: 'delta-muted' },
-    { label: 'Tổng đơn hôm nay', value: orders.length, delta: `${paid.length} đã thanh toán`, deltaClass: 'delta-up' },
-  ];
+  async function loadDashboard() {
+    try {
+      const [tables, orders] = await Promise.all([
+        apiGetTables(),
+        apiGetOrders(),
+      ]);
 
-  document.getElementById('stats-grid').innerHTML = statsData.map(s => `
-    <div class="stat-card ${s.accent ? 'stat-card-accent' : 'stat-card-gold'}">
-      <div class="stat-label">${s.label}</div>
-      <div class="stat-value">${s.value}</div>
-      <div class="stat-delta ${s.deltaClass}">${s.delta}</div>
-    </div>
-  `).join('');
+      // ── Stats ──
+      const now        = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  // ── Recent Orders ──
-  const statusBadge = { unpaid: 'badge-orange', paid: 'badge-green', cancelled: 'badge-muted' };
-  const recent = [...orders].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
+      const paidAll    = orders.filter(o => o.status === 'Completed');
+      const paidToday  = paidAll.filter(o => new Date(o.order_time) >= todayStart);
+      const paidMonth  = paidAll.filter(o => new Date(o.order_time) >= monthStart);
 
-  document.getElementById('recent-orders').innerHTML = recent.length ? recent.map(o => {
-    const table = tables.find(t => t.id === o.tableId);
-    const total = calcOrderTotal(o);
-    const time  = new Date(o.createdAt).toLocaleTimeString('vi', { hour: '2-digit', minute: '2-digit' });
-    return `
-      <div class="order-row" onclick="window.location.href='orders.html'" style="cursor:pointer">
-        <div class="order-id">${o.id.replace('ord-', '#')}</div>
-        <div class="order-table">Bàn ${table?.num || '?'}</div>
-        <div class="order-items">${o.items.map(i => i.name).join(', ')}</div>
-        <div class="order-price">${total.toLocaleString('vi')}đ</div>
-        <div><span class="badge ${statusBadge[o.status]}">${ORDER_STATUS_LABEL[o.status]}</span></div>
-        <div style="color:var(--muted);font-size:12px;min-width:40px">${time}</div>
-      </div>
-    `;
-  }).join('') : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có đơn nào hôm nay</div>';
+      const unpaid     = orders.filter(o => ['Pending', 'Serving'].includes(o.status));
+      const freeCount  = tables.filter(t => t.status === 'Available').length;
 
-  // ── Mini Table Map ──
-  const statusClass = { free: 'md-free', partial: 'md-partial', full: 'md-full', reserved: 'md-reserved' };
-  document.getElementById('mini-tables').innerHTML = tables.map(t => `
-    <div class="mini-dot ${statusClass[t.status]}" title="Bàn ${t.num} — ${TABLE_STATUS_LABEL[t.status]}" onclick="window.location.href='tables.html'">
-      <span class="mini-dot-num">${t.num}</span>
-    </div>
-  `).join('');
+      const revToday   = paidToday.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+      const revMonth   = paidMonth.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
 
-  document.getElementById('table-summary').textContent = `${tables.length} bàn`;
+      document.getElementById('stats-grid').innerHTML = [
+        {
+          label: 'Doanh thu hôm nay',
+          value: revToday.toLocaleString('vi') + 'đ',
+          delta: `${paidToday.length} đơn đã thanh toán`,
+          deltaClass: 'delta-up', accent: true,
+        },
+        {
+          label: 'Doanh thu tháng này',
+          value: revMonth.toLocaleString('vi') + 'đ',
+          delta: `${paidMonth.length} đơn đã thanh toán`,
+          deltaClass: 'delta-up', accent: true,
+        },
+        {
+          label: 'Đơn chưa thanh toán',
+          value: unpaid.length,
+          delta: 'Cần xử lý',
+          deltaClass: 'delta-muted', accent: false,
+        },
+        {
+          label: 'Bàn đang trống',
+          value: `${freeCount}/${tables.length}`,
+          delta: `${tables.length - freeCount} bàn có khách`,
+          deltaClass: 'delta-muted', accent: false,
+        },
+      ].map(s => `
+        <div class="stat-card ${s.accent ? 'stat-card-accent' : 'stat-card-gold'}">
+          <div class="stat-label">${s.label}</div>
+          <div class="stat-value">${s.value}</div>
+          <div class="stat-delta ${s.deltaClass}">${s.delta}</div>
+        </div>
+      `).join('');
+
+      // ── Recent Orders ──
+      const recent = [...orders]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 5);
+
+      document.getElementById('recent-orders').innerHTML = recent.length
+        ? recent.map(o => {
+          const time = new Date(o.order_time).toLocaleString('vi', {
+            hour: '2-digit', minute: '2-digit',
+            day: '2-digit', month: '2-digit', year: 'numeric'
+          });
+
+          return `
+            <div class="order-row" onclick="window.location.href='orders.html'" style="cursor:pointer">
+              <div class="order-id">#${o.order_id?.slice(0,8)}</div>
+              <div class="order-table">
+                ${o.table ? `Bàn ${o.table.table_number}` : o.order_type === 'take-away' ? '🥡 Mang về' : 'Bàn ?'}
+              </div>
+              <div class="order-items" style="color:var(--muted);font-size:12px">
+                ${o.order_items?.length || 0} món
+              </div>
+              <div class="order-price">${(o.total_amount || 0).toLocaleString('vi')}đ</div>
+              <div><span class="badge ${statusBadge[o.status]}">${statusLabel[o.status] || o.status}</span></div>
+              <div style="color:var(--muted);font-size:12px">${time}</div>
+            </div>
+          `;
+          }).join('')
+        : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có đơn nào</div>';
+
+      // ── Mini Table Map ──
+      const dotClass = { Available: 'md-free', Occupied: 'md-full', reserved: 'md-reserved' };
+      document.getElementById('mini-tables').innerHTML = tables.map(t => `
+        <div class="mini-dot ${dotClass[t.status] || 'md-free'}"
+             title="Bàn ${t.table_number} — ${t.status}"
+             onclick="window.location.href='tables.html'">
+          <span class="mini-dot-num">${t.table_number}</span>
+        </div>
+      `).join('');
+
+      document.getElementById('table-summary').textContent = `${tables.length} bàn`;
+
+    } catch (err) {
+      console.error('Dashboard error:', err);
+    }
+  }
+
+  loadDashboard();
 </script>
 </body>
 </html>

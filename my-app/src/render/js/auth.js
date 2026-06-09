@@ -1,96 +1,97 @@
 /* ============================================================
-   auth.js — Authentication & session management
+   auth.js — Authentication sử dụng backend API
    ============================================================ */
 
-   import { users, syncUsers } from './data.js';
+   import { apiLogin, apiRegisterManager, apiCreateStaff, getToken, removeToken } from './api.js'
 
-   const SESSION_KEY = 'ros_session';
+   const SESSION_KEY = 'ros_session'
    
    // ── Session ────────────────────────────────────────────────
    
-   export function saveSession(user) {
-     const session = {
-       id: user.id, name: user.name,
-       username: user.username, role: user.role, phone: user.phone,
-     };
-     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+   export function getSession() {
+     const raw = sessionStorage.getItem(SESSION_KEY)
+     return raw ? JSON.parse(raw) : null
    }
    
-   export function getSession() {
-     const raw = sessionStorage.getItem(SESSION_KEY);
-     return raw ? JSON.parse(raw) : null;
+   export function saveSession(user) {
+     sessionStorage.setItem(SESSION_KEY, JSON.stringify(user))
    }
    
    export function logout() {
-     sessionStorage.removeItem(SESSION_KEY);
-     window.location.replace('../pages/login.html');
+     removeToken()
+     sessionStorage.removeItem(SESSION_KEY)
+     window.location.replace('../pages/login.html')
    }
    
    // ── Login ──────────────────────────────────────────────────
    
-   export function login(username, password) {
-     const user = users.find(u => u.username === username && u.password === password);
-     if (!user) return { success: false, error: 'Tên đăng nhập hoặc mật khẩu không đúng.' };
-     saveSession(user);
-     return { success: true, user };
+   export async function login(username, password) {
+     try {
+       const data = await apiLogin(username, password)
+       if (!data) return { success: false, error: 'Không thể kết nối server.' }
+       return { success: true, user: data.user }
+     } catch (err) {
+       return { success: false, error: err.message }
+     }
    }
    
-   export function verifyUser(username, password) {
-     const user = users.find(u => u.username === username && u.password === password);
-     if (!user) return { success: false, error: 'Tên đăng nhập hoặc mật khẩu không đúng.' };
-     return { success: true, user };
+   export async function verifyUser(username, password) {
+     try {
+       const res = await fetch('http://localhost:3000/api/auth/login', {
+         method:  'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body:    JSON.stringify({ username, password }),
+       })
+       const data = await res.json()
+       if (!res.ok) return { success: false, error: data.error }
+       return { success: true, user: data.user }
+     } catch {
+       return { success: false, error: 'Không thể kết nối server.' }
+     }
    }
    
-   // ── Register ───────────────────────────────────────────────
+   export async function registerManager(name, username, password, phone) {
+     try {
+       const data = await apiRegisterManager(name, username, password, phone)
+       return { success: true, data }
+     } catch (err) {
+       return { success: false, error: err.message }
+     }
+   }
    
-   export function registerStaff(data, currentUser) {
-     if (currentUser.role !== 'manager') {
-       return { success: false, error: 'Bạn không có quyền tạo tài khoản.' };
+   export async function registerStaff(staffData, currentUser) {
+     if (currentUser.role !== 'Manager') {
+       return { success: false, error: 'Bạn không có quyền tạo tài khoản.' }
      }
-     if (!data.name || !data.username || !data.password) {
-       return { success: false, error: 'Vui lòng điền đầy đủ thông tin.' };
+     try {
+       const data = await apiCreateStaff(
+         staffData.name, staffData.username,
+         staffData.password, staffData.phone
+       )
+       return { success: true, data }
+     } catch (err) {
+       return { success: false, error: err.message }
      }
-     if (data.password.length < 6) {
-       return { success: false, error: 'Mật khẩu tối thiểu 6 ký tự.' };
-     }
-     if (users.find(u => u.username === data.username)) {
-       return { success: false, error: 'Tên đăng nhập đã tồn tại.' };
-     }
-   
-     users.push({
-       id: 'u' + (users.length + 1),
-       name: data.name,
-       username: data.username,
-       password: data.password,
-       role: 'staff',
-       phone: data.phone || '',
-       createdAt: new Date().toISOString().split('T')[0],
-     });
-   
-     syncUsers(); // ← lưu vào sessionStorage ngay
-     return { success: true };
    }
    
    // ── Route Guards ───────────────────────────────────────────
    
    export function requireAuth() {
-     const session = getSession();
-     if (!session) {
-       window.location.replace('../pages/login.html');
-       return null;
+     const session = getSession()
+     const token   = getToken()
+     if (!session || !token) {
+       window.location.replace('../pages/login.html')
+       return null
      }
-     return session;
+     return session
    }
    
    export function requireManager() {
-     const session = getSession();
-     if (!session) {
-       window.location.replace('../pages/login.html');
-       return null;
+     const session = requireAuth()
+     if (!session) return null
+     if (session.role !== 'Manager') {
+       window.location.replace('../pages/dashboard.html')
+       return null
      }
-     if (session.role !== 'manager') {
-       window.location.replace('../pages/dashboard.html');
-       return null;
-     }
-     return session;
+     return session
    }

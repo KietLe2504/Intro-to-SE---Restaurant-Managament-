@@ -19,13 +19,6 @@
     .tier-gold    { background: rgba(212,160,23,0.2);  color: var(--gold-deep); }
     .tier-diamond { background: rgba(96,165,250,0.2);  color: var(--blue); }
 
-    .member-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius-lg); padding: 20px;
-      cursor: pointer; transition: all 0.2s;
-    }
-    .member-card:hover { border-color: var(--red); box-shadow: var(--shadow-md); }
-
     .progress-bar {
       height: 6px; background: var(--surface2);
       border-radius: 3px; overflow: hidden; margin-top: 6px;
@@ -50,11 +43,9 @@
           <input class="search-input" placeholder="🔍 Tìm theo tên hoặc SĐT..."
                  id="member-search" oninput="renderList()"/>
           <div class="filter-group">
-            <div class="filter-chip active" data-tf="all"     onclick="setTierFilter('all')">Tất cả</div>
-            <div class="filter-chip"        data-tf="bronze"  onclick="setTierFilter('bronze')">🥉 Đồng</div>
-            <div class="filter-chip"        data-tf="silver"  onclick="setTierFilter('silver')">🥈 Bạc</div>
-            <div class="filter-chip"        data-tf="gold"    onclick="setTierFilter('gold')">🥇 Vàng</div>
-            <div class="filter-chip"        data-tf="diamond" onclick="setTierFilter('diamond')">💎 Kim Cương</div>
+            <div class="filter-chip active" data-tf="all" onclick="setTierFilter('all')">Tất cả</div>
+            <!-- filter chips được render động theo tiers từ API -->
+            <div id="tier-filter-chips"></div>
           </div>
           <button class="btn btn-primary" onclick="openCreateModal()">+ Đăng ký thành viên</button>
         </div>
@@ -71,14 +62,17 @@
                 <th>Thành viên</th>
                 <th>SĐT</th>
                 <th>Hạng</th>
-                <th>Tổng chi tiêu</th>
                 <th>Điểm hiện có</th>
-                <th>Đơn hàng</th>
+                <th>Số đơn</th>
                 <th>Ngày đăng ký</th>
                 <th></th>
               </tr>
             </thead>
-            <tbody id="member-tbody"></tbody>
+            <tbody id="member-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">
+                Đang tải...
+              </td></tr>
+            </tbody>
           </table>
         </div>
       </div>
@@ -90,7 +84,6 @@
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 320px;gap:16px">
-          <!-- Left: info + history -->
           <div>
             <div class="card" style="margin-bottom:14px" id="detail-card"></div>
             <div class="card">
@@ -98,7 +91,6 @@
               <div id="detail-history"></div>
             </div>
           </div>
-          <!-- Right: points -->
           <div class="card" id="detail-points-card"></div>
         </div>
       </div>
@@ -121,7 +113,7 @@
       </div>
       <div class="form-group">
         <label class="form-label">Số điện thoại *</label>
-        <input class="form-input" id="new-phone" type="tel" placeholder="0901 234 567"/>
+        <input class="form-input" id="new-phone" type="tel" placeholder="0901234567"/>
       </div>
       <div class="form-group">
         <label class="form-label">Email</label>
@@ -133,7 +125,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeCreateModal()">Hủy</button>
-      <button class="btn btn-primary" onclick="createMember()">Đăng ký</button>
+      <button class="btn btn-primary" id="create-btn" onclick="createMember()">Đăng ký</button>
     </div>
   </div>
 </div>
@@ -142,43 +134,75 @@
   import { requireAuth } from '../js/auth.js';
   import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
   import {
-    members, syncMembers,
-    MEMBERSHIP_TIERS, calcTier, findMemberByPhone,
-    MAX_POINTS_PER_ORDER, MAX_REDEEM_PER_ORDER,
-  } from '../js/data.js';
+    apiGetCustomers, apiGetCustomer,
+    apiCreateCustomer, apiUpdateCustomerPoints,
+    apiGetMemberships,
+  } from '../js/api.js';
 
   const session = requireAuth();
   if (!session) throw new Error();
   renderSidebar('membership');
-  renderHeader({
-    title: 'Thành viên',
-    sub: `${members.length} thành viên`,
-    showBack: true, backUrl: 'dashboard.html',
-  });
 
+  // ── State ─────────────────────────────────────────────────
+  let allCustomers  = [];
+  let allTiers      = [];   // từ /api/memberships
   let tierFilter    = 'all';
-  let currentMemberId = null;
+  let currentId     = null;
 
+  // Map level → CSS class
   const TIER_CLASS = {
-    bronze: 'tier-bronze', silver: 'tier-silver',
-    gold: 'tier-gold', diamond: 'tier-diamond',
+    Bronze: 'tier-bronze', Silver: 'tier-silver',
+    Gold: 'tier-gold', Diamond: 'tier-diamond',
+  };
+  const TIER_BADGE = {
+    Bronze: '🥉', Silver: '🥈', Gold: '🥇', Diamond: '💎',
   };
 
-  // ── Tier stats ──
+  // ── Load data ─────────────────────────────────────────────
+  async function init() {
+    try {
+      [allTiers, allCustomers] = await Promise.all([
+        apiGetMemberships(),
+        apiGetCustomers(),
+      ]);
+      renderHeader({
+        title: 'Thành viên',
+        sub: `${allCustomers.length} thành viên`,
+        showBack: true, backUrl: 'dashboard.html',
+      });
+      renderTierFilterChips();
+      renderStats();
+      renderList();
+    } catch (err) {
+      showToast('Không thể tải dữ liệu: ' + err.message, 'error');
+    }
+  }
+
+  // ── Tier filter chips (dynamic) ───────────────────────────
+  function renderTierFilterChips() {
+    document.getElementById('tier-filter-chips').innerHTML = allTiers.map(t => `
+      <div class="filter-chip" data-tf="${t.level}"
+           onclick="setTierFilter('${t.level}')">
+        ${TIER_BADGE[t.level] || ''} ${t.level}
+      </div>
+    `).join('');
+  }
+
+  // ── Stats ─────────────────────────────────────────────────
   function renderStats() {
-    document.getElementById('tier-stats').innerHTML = MEMBERSHIP_TIERS.map(t => {
-      const count = members.filter(m => m.tier === t.tier).length;
+    document.getElementById('tier-stats').innerHTML = allTiers.map(t => {
+      const count = allCustomers.filter(c => c.membership?.level === t.level).length;
       return `
         <div class="stat-card stat-card-gold">
-          <div class="stat-label">${t.badge} ${t.label}</div>
+          <div class="stat-label">${TIER_BADGE[t.level] || ''} ${t.level}</div>
           <div class="stat-value" style="font-size:24px">${count}</div>
-          <div class="stat-delta delta-muted">Tích lũy ${t.pointRate * 100}%</div>
+          <div class="stat-delta delta-muted">Tích lũy ${(t.point_rate * 100).toFixed(0)}%</div>
         </div>
       `;
     }).join('');
   }
 
-  // ── Filter ──
+  // ── Filter ────────────────────────────────────────────────
   window.setTierFilter = function(tf) {
     tierFilter = tf;
     document.querySelectorAll('[data-tf]').forEach(c =>
@@ -186,167 +210,198 @@
     renderList();
   };
 
-  // ── Render list ──
+  // ── Render list ───────────────────────────────────────────
   window.renderList = function() {
     const q = document.getElementById('member-search').value.toLowerCase();
-    const list = members.filter(m => {
-      if (tierFilter !== 'all' && m.tier !== tierFilter) return false;
-      return m.name.toLowerCase().includes(q) || m.phone.includes(q);
-    }).sort((a, b) => b.totalSpend - a.totalSpend);
+    const list = allCustomers.filter(c => {
+      if (tierFilter !== 'all' && c.membership?.level !== tierFilter) return false;
+      return c.name.toLowerCase().includes(q) || (c.phone || '').includes(q);
+    });
 
-    document.getElementById('member-tbody').innerHTML = list.map(m => {
-      const tier = calcTier(m.totalSpend);
-      const nextTier = MEMBERSHIP_TIERS[MEMBERSHIP_TIERS.findIndex(t => t.tier === tier.tier) + 1];
+    document.getElementById('member-tbody').innerHTML = list.map(c => {
+      const tier = c.membership;
+      const tierClass = tier ? (TIER_CLASS[tier.level] || 'tier-bronze') : 'tier-bronze';
+      const tierBadge = tier ? (TIER_BADGE[tier.level] || '') : '🥉';
+      const tierLabel = tier?.level || 'Bronze';
       return `
-        <tr style="cursor:pointer" onclick="showDetail('${m.id}')">
-          <td style="font-weight:500">${m.name}</td>
-          <td style="color:var(--muted)">${m.phone}</td>
-          <td><span class="tier-badge ${TIER_CLASS[m.tier]}">${tier.badge} ${tier.label}</span></td>
-          <td style="font-weight:600">${m.totalSpend.toLocaleString('vi')}đ</td>
-          <td style="color:var(--gold-deep);font-weight:600">
-            ${m.points.toLocaleString('vi')} điểm
+        <tr style="cursor:pointer" onclick="showDetail('${c.customer_id}')">
+          <td style="font-weight:500">${c.name}</td>
+          <td style="color:var(--muted)">${c.phone}</td>
+          <td>
+            <span class="tier-badge ${tierClass}">
+              ${tierBadge} ${tierLabel}
+            </span>
           </td>
-          <td><span class="badge badge-muted">${m.orders.length} đơn</span></td>
-          <td style="color:var(--muted);font-size:12px">${m.createdAt}</td>
+          <td style="color:var(--gold-deep);font-weight:600">
+            ${(c.total_points || 0).toLocaleString('vi')} điểm
+          </td>
+          <td>
+            <span class="badge badge-muted">${c.orders?.length ?? '—'}</span>
+          </td>
+          <td style="color:var(--muted);font-size:12px">
+            ${c.created_at ? new Date(c.created_at).toLocaleDateString('vi') : '—'}
+          </td>
           <td>
             <button class="btn btn-sm btn-ghost"
-                    onclick="event.stopPropagation();showDetail('${m.id}')">
+                    onclick="event.stopPropagation();showDetail('${c.customer_id}')">
               Chi tiết
             </button>
           </td>
         </tr>
       `;
     }).join('') || `
-      <tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">
+      <tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">
         Không có thành viên nào
       </td></tr>`;
   };
 
-  // ── Detail ──
-  window.showDetail = function(memberId) {
-    currentMemberId = memberId;
-    const m = members.find(m => m.id === memberId);
-    if (!m) return;
-
+  // ── Detail ────────────────────────────────────────────────
+  window.showDetail = async function(customerId) {
+    currentId = customerId;
     show('view-detail');
+    document.getElementById('detail-card').innerHTML =
+      '<div style="padding:20px;color:var(--muted)">Đang tải...</div>';
 
-    const tier     = calcTier(m.totalSpend);
-    const nextTier = MEMBERSHIP_TIERS[MEMBERSHIP_TIERS.findIndex(t => t.tier === tier.tier) + 1];
-    const progress = nextTier
-      ? Math.min(100, Math.round((m.totalSpend - tier.minSpend) / (nextTier.minSpend - tier.minSpend) * 100))
-      : 100;
+    try {
+      const c = await apiGetCustomer(customerId);
 
-    document.getElementById('detail-card').innerHTML = `
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
-        <div style="width:56px;height:56px;border-radius:50%;
-                    background:linear-gradient(135deg,var(--red),var(--gold));
-                    display:flex;align-items:center;justify-content:center;
-                    font-size:22px;font-weight:700;color:#fff;flex-shrink:0">
-          ${m.name[0]}
-        </div>
-        <div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700">${m.name}</div>
-          <div style="font-size:13px;color:var(--muted)">${m.phone}</div>
-          ${m.email ? `<div style="font-size:12px;color:var(--muted)">${m.email}</div>` : ''}
-        </div>
-        <span class="tier-badge ${TIER_CLASS[m.tier]}" style="margin-left:auto;font-size:14px;padding:5px 14px">
-          ${tier.badge} ${tier.label}
-        </span>
-      </div>
+      const tier     = c.membership;
+      const tierClass = tier ? (TIER_CLASS[tier.level] || 'tier-bronze') : 'tier-bronze';
+      const tierBadge = tier ? (TIER_BADGE[tier.level] || '🥉') : '🥉';
+      const tierLabel = tier?.level || 'Bronze';
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-        <div style="background:var(--surface2);padding:14px;border-radius:var(--radius)">
-          <div class="stat-label">Tổng chi tiêu</div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--red)">
-            ${m.totalSpend.toLocaleString('vi')}đ
+      // Tính progress lên tier tiếp theo
+      const tierIdx   = allTiers.findIndex(t => t.membership_id === tier?.membership_id);
+      const nextTier  = allTiers[tierIdx + 1] || null;
+      const curMin    = tier?.min_spend || 0;
+      const nextMin   = nextTier?.min_spend || null;
+      // Dùng total_points làm proxy vì API không trả total_spend
+      // Nếu có total_amount từ orders thì tính lại
+      const totalSpend = c.orders?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0;
+      const progress   = nextMin
+        ? Math.min(100, Math.round((totalSpend - curMin) / (nextMin - curMin) * 100))
+        : 100;
+
+      document.getElementById('detail-card').innerHTML = `
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+          <div style="width:56px;height:56px;border-radius:50%;
+                      background:linear-gradient(135deg,var(--red),var(--gold));
+                      display:flex;align-items:center;justify-content:center;
+                      font-size:22px;font-weight:700;color:#fff;flex-shrink:0">
+            ${c.name[0]}
           </div>
-        </div>
-        <div style="background:var(--surface2);padding:14px;border-radius:var(--radius)">
-          <div class="stat-label">Điểm tích lũy</div>
-          <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--gold-deep)">
-            ${m.points.toLocaleString('vi')} điểm
+          <div>
+            <div style="font-family:var(--font-display);font-size:20px;font-weight:700">${c.name}</div>
+            <div style="font-size:13px;color:var(--muted)">${c.phone}</div>
+            ${c.email ? `<div style="font-size:12px;color:var(--muted)">${c.email}</div>` : ''}
           </div>
+          <span class="tier-badge ${tierClass}"
+                style="margin-left:auto;font-size:14px;padding:5px 14px">
+            ${tierBadge} ${tierLabel}
+          </span>
         </div>
-      </div>
 
-      ${nextTier ? `
-        <div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px">
-            <span>${tier.badge} ${tier.label}</span>
-            <span>Còn ${(nextTier.minSpend - m.totalSpend).toLocaleString('vi')}đ lên ${nextTier.badge} ${nextTier.label}</span>
-          </div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:${progress}%"></div>
-          </div>
-        </div>
-      ` : `
-        <div style="text-align:center;font-size:13px;color:var(--gold-deep);
-                    padding:8px;background:var(--gold-bg);border-radius:var(--radius)">
-          💎 Đã đạt hạng cao nhất!
-        </div>
-      `}
-    `;
-
-    // Points card
-    document.getElementById('detail-points-card').innerHTML = `
-      <div class="card-title">Điểm & Quyền lợi</div>
-      <div style="font-size:13px;display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:var(--muted)">Điểm hiện có</span>
-          <strong style="color:var(--gold-deep)">${m.points.toLocaleString('vi')} điểm</strong>
-        </div>
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:var(--muted)">Tỉ lệ tích điểm</span>
-          <strong>${tier.pointRate * 100}% giá trị đơn</strong>
-        </div>
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:var(--muted)">Tối đa/đơn</span>
-          <strong>${MAX_POINTS_PER_ORDER.toLocaleString('vi')} điểm</strong>
-        </div>
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:var(--muted)">Dùng tối đa/đơn</span>
-          <strong>${MAX_REDEEM_PER_ORDER.toLocaleString('vi')}đ</strong>
-        </div>
-        <div class="vn-divider"></div>
-        <div style="background:var(--gold-bg);border-radius:var(--radius);
-                    padding:12px;font-size:12px;color:var(--gold-deep)">
-          💡 1 điểm = 1đ khi thanh toán
-        </div>
-        ${session.role === 'manager' ? `
-          <button class="btn btn-ghost btn-full" onclick="adjustPoints('${m.id}')">
-            Điều chỉnh điểm
-          </button>
-        ` : ''}
-      </div>
-    `;
-
-    // History
-    const hist = [...m.orders].reverse();
-    document.getElementById('detail-history').innerHTML = hist.length
-      ? hist.map(h => `
-          <div style="display:flex;align-items:center;gap:12px;padding:10px 0;
-                      border-bottom:1px solid var(--border)">
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:500">
-                Đơn #${h.orderId.replace('ord-','')}
-              </div>
-              <div style="font-size:11px;color:var(--muted)">
-                ${new Date(h.date).toLocaleDateString('vi')}
-              </div>
-            </div>
-            <div style="text-align:right">
-              <div style="font-size:13px;font-weight:600">${h.amount.toLocaleString('vi')}đ</div>
-              <div style="font-size:11px;color:var(--green)">+${h.earned.toLocaleString('vi')} điểm</div>
-              ${h.redeemed ? `<div style="font-size:11px;color:var(--red)">-${h.redeemed.toLocaleString('vi')} điểm</div>` : ''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div style="background:var(--surface2);padding:14px;border-radius:var(--radius)">
+            <div class="stat-label">Tổng chi tiêu (10 đơn gần nhất)</div>
+            <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--red)">
+              ${totalSpend.toLocaleString('vi')}đ
             </div>
           </div>
-        `).join('')
-      : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có đơn nào</div>';
+          <div style="background:var(--surface2);padding:14px;border-radius:var(--radius)">
+            <div class="stat-label">Điểm tích lũy</div>
+            <div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--gold-deep)">
+              ${(c.total_points || 0).toLocaleString('vi')} điểm
+            </div>
+          </div>
+        </div>
+
+        ${nextTier ? `
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;
+                        color:var(--muted);margin-bottom:4px">
+              <span>${tierBadge} ${tierLabel}</span>
+              <span>Lên ${TIER_BADGE[nextTier.level] || ''} ${nextTier.level}
+                cần ${nextTier.min_spend.toLocaleString('vi')}đ</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:${Math.max(2, progress)}%"></div>
+            </div>
+          </div>
+        ` : `
+          <div style="text-align:center;font-size:13px;color:var(--gold-deep);
+                      padding:8px;background:var(--gold-bg);border-radius:var(--radius)">
+            💎 Đã đạt hạng cao nhất!
+          </div>
+        `}
+      `;
+
+      // Points card
+      document.getElementById('detail-points-card').innerHTML = `
+        <div class="card-title">Điểm & Quyền lợi</div>
+        <div style="font-size:13px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Điểm hiện có</span>
+            <strong style="color:var(--gold-deep)">${(c.total_points || 0).toLocaleString('vi')} điểm</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Tỉ lệ tích điểm</span>
+            <strong>${tier ? (tier.point_rate * 100).toFixed(0) : 0}% giá trị đơn</strong>
+          </div>
+          ${tier?.benefit_description ? `
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:var(--muted)">Quyền lợi</span>
+              <strong style="text-align:right;max-width:160px">${tier.benefit_description}</strong>
+            </div>
+          ` : ''}
+          <div class="vn-divider"></div>
+          <div style="background:var(--gold-bg);border-radius:var(--radius);
+                      padding:12px;font-size:12px;color:var(--gold-deep)">
+            💡 1 điểm = 1đ khi thanh toán
+          </div>
+          ${session.role === 'Manager' ? `
+            <button class="btn btn-ghost btn-full"
+                    onclick="adjustPoints('${c.customer_id}', ${c.total_points || 0}, '${c.name.replace(/'/g,"\\'")}')">
+              Điều chỉnh điểm
+            </button>
+          ` : ''}
+        </div>
+      `;
+
+      // Lịch sử đơn
+      const orders = c.orders || [];
+      document.getElementById('detail-history').innerHTML = orders.length
+        ? orders.map(o => `
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 0;
+                        border-bottom:1px solid var(--border)">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:500">
+                  Đơn #${o.order_id.slice(-6).toUpperCase()}
+                </div>
+                <div style="font-size:11px;color:var(--muted)">
+                  ${new Date(o.order_time).toLocaleDateString('vi')}
+                </div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:600">
+                  ${(o.total_amount || 0).toLocaleString('vi')}đ
+                </div>
+                <span class="badge badge-muted" style="font-size:10px">${o.status}</span>
+              </div>
+            </div>
+          `).join('')
+        : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có đơn nào</div>';
+
+    } catch (err) {
+      document.getElementById('detail-card').innerHTML =
+        `<div style="color:var(--red);padding:20px">Lỗi tải dữ liệu: ${err.message}</div>`;
+    }
   };
 
-  // ── Tạo thành viên ──
+  // ── Tạo thành viên ────────────────────────────────────────
   window.openCreateModal = function() {
-    ['new-name','new-phone','new-email'].forEach(id => document.getElementById(id).value = '');
+    ['new-name','new-phone','new-email'].forEach(id =>
+      document.getElementById(id).value = '');
     document.getElementById('create-error').style.display = 'none';
     document.getElementById('create-modal').classList.add('open');
   };
@@ -355,74 +410,79 @@
     document.getElementById('create-modal').classList.remove('open');
   };
 
-  window.createMember = function() {
+  window.createMember = async function() {
     const errEl = document.getElementById('create-error');
+    const btn   = document.getElementById('create-btn');
+    errEl.style.display = 'none';
+
     const name  = document.getElementById('new-name').value.trim();
     const phone = document.getElementById('new-phone').value.trim();
     const email = document.getElementById('new-email').value.trim();
 
-    if (!name)  { errEl.textContent = 'Vui lòng nhập họ tên.'; errEl.style.display = 'block'; return; }
-    if (!phone) { errEl.textContent = 'Vui lòng nhập số điện thoại.'; errEl.style.display = 'block'; return; }
+    if (!name)  return showErr('Vui lòng nhập họ tên.');
+    if (!phone) return showErr('Vui lòng nhập số điện thoại.');
 
-    const dup = findMemberByPhone(phone);
-    if (dup) {
-      errEl.textContent = `SĐT này đã đăng ký thành viên (${dup.name}).`;
-      errEl.style.display = 'block';
-      return;
+    btn.disabled = true; btn.textContent = 'Đang đăng ký...';
+    try {
+      const created = await apiCreateCustomer({ name, phone, email: email || undefined });
+      allCustomers.unshift(created);
+      showToast(`Đã đăng ký thành viên ${name}!`, 'success');
+      closeCreateModal();
+      renderStats();
+      renderList();
+    } catch (err) {
+      showErr(err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Đăng ký';
     }
 
-    members.push({
-      id: 'mem-' + String(members.length + 1).padStart(3, '0'),
-      name, phone, email,
-      tier: 'bronze',
-      totalSpend: 0,
-      points: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-      orders: [],
-    });
-
-    syncMembers();
-    showToast(`Đã đăng ký thành viên ${name}!`, 'success');
-    closeCreateModal();
-    renderStats();
-    renderList();
+    function showErr(msg) {
+      errEl.textContent = msg;
+      errEl.style.display = 'block';
+    }
   };
 
-  // ── Điều chỉnh điểm (Manager) ──
-  window.adjustPoints = function(memberId) {
-    const m = members.find(m => m.id === memberId);
-    if (!m) return;
-
-    const amount = prompt(`Điều chỉnh điểm cho ${m.name}\nNhập số dương để cộng, số âm để trừ:\n(Hiện có: ${m.points.toLocaleString('vi')} điểm)`);
+  // ── Điều chỉnh điểm (Manager) ────────────────────────────
+  window.adjustPoints = function(customerId, currentPoints, name) {
+    const amount = prompt(
+      `Điều chỉnh điểm cho ${name}\n` +
+      `Nhập số dương để cộng, số âm để trừ:\n` +
+      `(Hiện có: ${currentPoints.toLocaleString('vi')} điểm)`
+    );
     if (amount === null) return;
     const delta = parseInt(amount);
     if (isNaN(delta)) { showToast('Số điểm không hợp lệ', 'error'); return; }
 
-    m.points = Math.max(0, m.points + delta);
-    syncMembers();
-    showToast(`Đã ${delta >= 0 ? 'cộng' : 'trừ'} ${Math.abs(delta).toLocaleString('vi')} điểm`, 'success');
-    showDetail(memberId);
+    apiUpdateCustomerPoints(customerId, delta)
+      .then(updated => {
+        // Cập nhật cache list
+        const idx = allCustomers.findIndex(c => c.customer_id === customerId);
+        if (idx !== -1) allCustomers[idx].total_points = updated.total_points;
+        showToast(
+          `Đã ${delta >= 0 ? 'cộng' : 'trừ'} ${Math.abs(delta).toLocaleString('vi')} điểm`,
+          'success'
+        );
+        showDetail(customerId); // re-render detail với data mới
+      })
+      .catch(err => showToast('Lỗi: ' + err.message, 'error'));
   };
 
+  // ── Utils ─────────────────────────────────────────────────
   function show(viewId) {
     ['view-list','view-detail'].forEach(id =>
       document.getElementById(id).style.display = id === viewId ? '' : 'none');
   }
 
   window.showList = function() {
-    currentMemberId = null;
+    currentId = null;
     show('view-list');
-    renderStats();
-    renderList();
   };
 
-  // Close backdrop
   document.getElementById('create-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('create-modal')) closeCreateModal();
   });
 
-  renderStats();
-  renderList();
+  init();
 </script>
 </body>
 </html>

@@ -336,47 +336,78 @@
 </div>
 
 <script type="module">
-  import { requireAuth } from '../js/auth.js';
+  import { requireAuth} from '../js/auth.js';
   import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
   import {
-    orders, tables, menuItems,
-    calcOrderTotal, ORDER_STATUS_LABEL, TABLE_STATUS_LABEL,
-    CAT_LABEL, getTableStatus, syncOrders, syncTables,
-    promotions, calcDiscount, findPromoByCode,
-    members, syncMembers, findMemberByPhone, calcEarnPoints, updateMemberAfterPayment, calcTier, MEMBERSHIP_TIERS, MAX_REDEEM_PER_ORDER,
-  } from '../js/data.js';
+    apiGetTables, apiGetOrders, apiGetOrder, apiCreateOrder,
+    apiUpdateOrderStatus, apiUpdateTable, apiServeItem, apiGetDishes,
+    apiGetPromotions, apiGetPromotionByCode,
+    apiGetCustomerByPhone, apiCreateCustomer,
+  } from '../js/api.js';
 
   const session = requireAuth();
   if (!session) throw new Error();
   renderSidebar('orders');
   renderHeader({ title: 'Đơn hàng', sub: 'Quản lý đơn', showBack: true, backUrl: 'dashboard.html' });
 
-  // ── State ──────────────────────────────────────────
-  let statusFilter = 'all';
-  let typeFilter   = 'all';
-  let catFilter    = 'all';
-  let bill         = {};       // menuId → { name, price, qty }
-  let orderType    = 'dine-in';
+  // ── State ──
+  let statusFilter   = 'all';
+  let typeFilter     = 'all';
+  let catFilter      = 'all';
+  let bill           = {};       // dish_id → { name, price, qty }
+  let orderType      = 'dine-in';
   let currentOrderId = null;
-  let appliedPromo   = null; // promotion đang áp dụng
-  let appliedMember  = null; // member đang áp dụng
-  let redeemPoints   = 0;    // điểm muốn dùng  // đơn đang xem chi tiết
-  let serveSelected  = {};    // menuId → qty muốn xác nhận
+  let appliedPromo   = null;
+  let appliedMember  = null;
+  let redeemPoints   = 0;
+  let serveSelected  = {};
+
+  // ── Data cache ──
+  let orders   = [];
+  let tables   = [];
+  let dishes   = [];
+  let promos   = [];
 
   const STATUS_BADGE = {
-    unpaid: 'badge-orange', paid: 'badge-green', cancelled: 'badge-muted',
+    Pending:   'badge-orange',
+    Serving:   'badge-orange',
+    Completed: 'badge-green',
+    Cancelled: 'badge-muted',
+  };
+  const STATUS_LABEL = {
+    Pending:   'Chưa phục vụ',
+    Serving:   'Đang phục vụ',
+    Completed: 'Đã thanh toán',
+    Cancelled: 'Đã hủy',
+  };
+  const CAT_LABEL = {
+    'Mon chinh': 'Món chính', 'Khai vi': 'Khai vị',
+    'Trang mieng': 'Tráng miệng', 'Do uong': 'Đồ uống',
   };
 
-  // ── Populate table filter ──
-  tables.forEach(t => {
-    const o = document.createElement('option');
-    o.value = t.id; o.textContent = `Bàn ${t.num}`;
-    document.getElementById('table-filter').appendChild(o);
-  });
+  // ── Init: load all data ──
+  async function init() {
+    [orders, tables, dishes, promos] = await Promise.all([
+      apiGetOrders(),
+      apiGetTables(),
+      apiGetDishes(),
+      apiGetPromotions(),
+    ]);
 
-  // ══════════════════════════════════════════════
-  // LIST VIEW
-  // ══════════════════════════════════════════════
+    // Populate table filter dropdown
+    const tf = document.getElementById('table-filter');
+    tables.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.table_id;
+      o.textContent = `Bàn ${t.table_number}`;
+      tf.appendChild(o);
+    });
+
+    renderList();
+    if (new URLSearchParams(window.location.search).get('new') === '1') showCreate();
+  }
+
+  // ══ LIST VIEW ══
 
   window.setFilter = function(sf) {
     statusFilter = sf;
@@ -396,64 +427,67 @@
 
   window.renderList = function() {
     const tblFilter = document.getElementById('table-filter').value;
-    const isMgr     = session.role === 'manager';
 
-    const list = orders.filter(o => {
-      if (statusFilter !== 'all' && o.status !== statusFilter) return false;
-      if (typeFilter   !== 'all' && o.type   !== typeFilter)   return false;
-      if (tblFilter    && o.tableId !== tblFilter)             return false;
-      if (!isMgr       && o.staffId !== session.id)            return false;
+    let list = orders.filter(o => {
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'unpaid' && !['Pending','Serving'].includes(o.status)) return false;
+        if (statusFilter === 'paid'      && o.status !== 'Completed')  return false;
+        if (statusFilter === 'cancelled' && o.status !== 'Cancelled')  return false;
+      }
+      if (typeFilter !== 'all' && o.order_type !== typeFilter) return false;
+      if (tblFilter  && o.table_id !== tblFilter)             return false;
       return true;
-    }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }).sort((a, b) => new Date(b.order_time) - new Date(a.order_time));
 
     document.getElementById('order-count').textContent = `${list.length} đơn`;
 
     const tbody = document.getElementById('order-tbody');
     tbody.innerHTML = list.map(o => {
-      const tbl     = tables.find(t => t.id === o.tableId);
-      const total   = calcOrderTotal(o);
-      const time    = new Date(o.createdAt).toLocaleString('vi', {
+      const tbl      = tables.find(t => t.table_id === o.table_id);
+      const total    = parseFloat(o.total_amount) || 0;
+      const time     = new Date(o.order_time).toLocaleString('vi', {
         hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit',
       });
-      const isDine  = o.type === 'dine-in';
-      const served  = o.items.filter(i => i.served).length;
-      const total_i = o.items.length;
+      const isDine   = o.order_type === 'dine-in';
+      const items    = o.order_items || [];
+      const served   = items.filter(i => i.is_served).length;
+      const isPending = ['Pending','Serving'].includes(o.status);
 
       const guestInfo = isDine
-        ? `Bàn ${tbl?.num || '?'}`
-        : `${o.customerName || 'Khách lẻ'}${o.customerPhone ? ` · ${o.customerPhone}` : ''}`;
+        ? `Bàn ${tbl?.table_number || '?'}`
+        : `${o.customer_name || 'Khách lẻ'}${o.customer_phone ? ` · ${o.customer_phone}` : ''}`;
 
       const typeBadge = isDine
         ? `<span class="badge badge-red"  style="font-size:10px">🍽 Tại bàn</span>`
         : `<span class="badge badge-gold" style="font-size:10px">🥡 Mang về</span>`;
 
-      const serveLabel = o.status === 'unpaid'
-        ? `<span style="font-size:11px;color:${served===total_i?'var(--green)':'var(--orange)'}">
-             ${served}/${total_i} phục vụ
+      const serveLabel = isPending
+        ? `<span style="font-size:11px;color:${served===items.length?'var(--green)':'var(--orange)'}">
+             ${served}/${items.length} phục vụ
            </span>`
         : '';
 
       return `
-        <tr style="cursor:pointer" onclick="showDetail('${o.id}')">
+        <tr style="cursor:pointer" onclick="showDetail('${o.order_id}')">
           <td style="font-family:var(--font-display);font-weight:700;color:var(--red)">
-            ${o.id.replace('ord-','#')}
+            #${o.order_id.slice(0,8)}
           </td>
           <td>${typeBadge}</td>
           <td>${guestInfo}</td>
-          <td style="color:var(--muted)">${o.staffName}</td>
-          <td>${total_i} món ${serveLabel}</td>
+          <td style="color:var(--muted)">${o.employee?.name || '?'}</td>
+          <td>${items.length} món ${serveLabel}</td>
           <td style="font-weight:600">${total.toLocaleString('vi')}đ</td>
-          <td><span class="badge ${STATUS_BADGE[o.status]}">${ORDER_STATUS_LABEL[o.status]}</span></td>
+          <td><span class="badge ${STATUS_BADGE[o.status]}">${STATUS_LABEL[o.status]}</span></td>
           <td style="color:var(--muted);font-size:12px">${time}</td>
           <td onclick="event.stopPropagation()">
             <div style="display:flex;gap:4px">
               <button class="btn btn-sm btn-ghost"
-                      onclick="event.stopPropagation();showDetail('${o.id}')">
+                      onclick="event.stopPropagation();showDetail('${o.order_id}')">
                 Chi tiết
               </button>
-              ${o.status === 'unpaid' ? `
+              ${isPending ? `
                 <button class="btn btn-sm btn-danger"
-                        onclick="event.stopPropagation();cancelOrder('${o.id}')">
+                        onclick="event.stopPropagation();cancelOrder('${o.order_id}')">
                   Hủy
                 </button>
               ` : ''}
@@ -463,113 +497,290 @@
       `;
     }).join('');
 
-    if (!tbody.innerHTML.trim()) {
+    if (!list.length) {
       tbody.innerHTML = `<tr><td colspan="9"
         style="text-align:center;padding:30px;color:var(--muted)">
         Không có đơn nào</td></tr>`;
     }
   };
 
-  // ══════════════════════════════════════════════
-  // CREATE VIEW
-  // ══════════════════════════════════════════════
+  // ══ CREATE VIEW ══
 
-  // ══════════════════════════════════════════════
-  // MEMBERSHIP
-  // ══════════════════════════════════════════════
+  window.showCreate = async function() {
+    bill = {}; orderType = 'dine-in';
+    appliedPromo = null; appliedMember = null; redeemPoints = 0;
 
-  const TIER_COLOR = { bronze:'#CD7F32', silver:'#A8A9AD', gold:'#D4A017', diamond:'#60a5fa' };
-  const TIER_BADGE = { bronze:'🥉', silver:'🥈', gold:'🥇', diamond:'💎' };
-  const TIER_LABEL = { bronze:'Đồng', silver:'Bạc', gold:'Vàng', diamond:'Kim Cương' };
+    // Refresh data
+    [tables, dishes, promos] = await Promise.all([
+      apiGetTables(), apiGetDishes(), apiGetPromotions(),
+    ]);
 
-  // Tra cứu member theo SĐT
-  window.lookupMember = function() {
+    show('view-create');
+    setType('dine-in');
+
+    document.getElementById('take-name').value  = '';
+    document.getElementById('take-phone').value = '';
+    document.getElementById('member-phone-input').value = '';
+    document.getElementById('member-result').style.display = 'none';
+    document.getElementById('bill-label').textContent = '';
+
+    // Populate bàn trống
+    const sel = document.getElementById('sel-table');
+    sel.innerHTML = '<option value="">-- Chọn bàn --</option>';
+    tables.filter(t => t.status === 'Available').forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.table_id;
+      o.textContent = `Bàn ${t.table_number} (${t.capacity} chỗ)`;
+      sel.appendChild(o);
+    });
+
+    const pre = sessionStorage.getItem('new_order_table');
+    if (pre) { sel.value = pre; sessionStorage.removeItem('new_order_table'); }
+    document.getElementById('promo-code-input').value = '';
+    document.getElementById('promo-select').value = '';
+    document.getElementById('promo-result').style.display = 'none';
+    document.getElementById('discount-row').style.display = 'none';
+    document.getElementById('redeem-row').style.display = 'none';
+    populatePromoSelect();
+    renderMenuPanel();
+    renderBill();
+  };
+
+  window.setType = function(type) {
+    orderType = type;
+    document.querySelectorAll('.order-type-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.type === type));
+    document.getElementById('dine-fields').style.display  = type === 'dine-in'   ? '' : 'none';
+    document.getElementById('take-fields').style.display  = type === 'take-away' ? '' : 'none';
+  };
+
+  window.onTableSel = function() {
+    const tid = document.getElementById('sel-table').value;
+    const tbl = tables.find(t => t.table_id === tid);
+    document.getElementById('bill-label').textContent = tbl ? `Bàn ${tbl.table_number}` : '';
+  };
+
+  window.setCat = function(cat) {
+    catFilter = cat;
+    document.querySelectorAll('[data-cat]').forEach(c =>
+      c.classList.toggle('active', c.dataset.cat === cat));
+    renderMenuPanel();
+  };
+
+  window.renderMenuPanel = function() {
+    const q = document.getElementById('menu-search').value.toLowerCase();
+    const filtered = dishes.filter(d =>
+      (catFilter === 'all' || d.category === catFilter) &&
+      d.dish_name.toLowerCase().includes(q)
+    );
+
+    // Group by category
+    const groups = {};
+    filtered.forEach(d => {
+      if (!groups[d.category]) groups[d.category] = [];
+      groups[d.category].push(d);
+    });
+
+    let html = '';
+    Object.entries(groups).forEach(([cat, items]) => {
+      html += `<div class="menu-section-title">${CAT_LABEL[cat] || cat}</div>`;
+      html += items.map(m => `
+        <div class="menu-item-card ${!m.is_available ? 'unavailable' : ''}"
+             onclick="${m.is_available ? `addItem('${m.dish_id}')` : ''}">
+          <div class="menu-item-name">
+            ${m.dish_name}
+            ${!m.is_available ? '<span class="badge badge-muted" style="font-size:10px;margin-left:6px">Hết</span>' : ''}
+          </div>
+          <div class="menu-item-price">${parseFloat(m.price).toLocaleString('vi')}đ</div>
+        </div>
+      `).join('');
+    });
+
+    document.getElementById('menu-panel').innerHTML =
+      html || '<div style="color:var(--muted);text-align:center;padding:20px">Không tìm thấy món</div>';
+  };
+
+  window.addItem = function(dishId) {
+    const m = dishes.find(d => d.dish_id === dishId);
+    if (!m || !m.is_available) return;
+    if (bill[dishId]) bill[dishId].qty++;
+    else bill[dishId] = { name: m.dish_name, price: parseFloat(m.price), qty: 1 };
+    renderBill();
+  };
+
+  window.changeQty = function(dishId, delta) {
+    if (!bill[dishId]) return;
+    bill[dishId].qty += delta;
+    if (bill[dishId].qty <= 0) delete bill[dishId];
+    renderBill();
+  };
+
+  function renderBill() {
+    const keys = Object.keys(bill);
+    const el   = document.getElementById('bill-items');
+    if (!keys.length) {
+      el.innerHTML = '<div class="bill-empty-msg">Chọn món để thêm vào đơn</div>';
+      document.getElementById('bill-total').textContent = '0đ';
+      document.getElementById('bill-count').textContent = '0';
+      return;
+    }
+    let count = 0;
+    el.innerHTML = keys.map(id => {
+      const item = bill[id];
+      count += item.qty;
+      return `
+        <div class="bill-item">
+          <div class="bill-item-name">${item.name}</div>
+          <button class="qty-btn" onclick="changeQty('${id}',-1)">−</button>
+          <span class="bill-item-qty">${item.qty}</span>
+          <button class="qty-btn" onclick="changeQty('${id}',1)">+</button>
+          <div class="bill-item-price">${(item.price * item.qty).toLocaleString('vi')}đ</div>
+        </div>
+      `;
+    }).join('');
+    document.getElementById('bill-count').textContent = count;
+    updateTotalDisplay();
+  }
+
+  function updateTotalDisplay() {
+    const raw      = Object.values(bill).reduce((s, i) => s + i.price * i.qty, 0);
+    const discount = appliedPromo ? calcDiscountLocal(appliedPromo, raw) : 0;
+    const final    = Math.max(0, raw - discount - redeemPoints);
+
+    const discountRow = document.getElementById('discount-row');
+    if (discountRow) {
+      discountRow.style.display = discount > 0 ? 'flex' : 'none';
+      if (discount > 0) {
+        document.getElementById('discount-label').textContent  = `KM (${appliedPromo.code})`;
+        document.getElementById('discount-amount').textContent = '-' + discount.toLocaleString('vi') + 'đ';
+      }
+    }
+    const redeemRow = document.getElementById('redeem-row');
+    if (redeemRow) {
+      redeemRow.style.display = redeemPoints > 0 ? 'flex' : 'none';
+      if (redeemPoints > 0) {
+        document.getElementById('redeem-amount').textContent = '-' + redeemPoints.toLocaleString('vi') + 'đ';
+      }
+    }
+    document.getElementById('bill-total').textContent = final.toLocaleString('vi') + 'đ';
+  }
+
+  function calcDiscountLocal(promo, total) {
+    if (!promo || !promo.is_active) return 0;
+    if (total < parseFloat(promo.min_order || 0)) return 0;
+    if (promo.type === 'percent') return Math.round(total * parseFloat(promo.value) / 100);
+    return Math.min(parseFloat(promo.value), total);
+  }
+
+  function populatePromoSelect() {
+    const sel = document.getElementById('promo-select');
+    sel.innerHTML = '<option value="">-- Chọn khuyến mãi --</option>';
+    promos.filter(p => p.is_active).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.code;
+      opt.textContent = `${p.name} (${p.code})`;
+      sel.appendChild(opt);
+    });
+  }
+
+  window.applyPromoFromSelect = function() {
+    const code = document.getElementById('promo-select').value;
+    appliedPromo = code ? promos.find(p => p.code === code) : null;
+    document.getElementById('promo-code-input').value = '';
+    showPromoResult(appliedPromo);
+    updateTotalDisplay();
+  };
+
+  window.applyPromoCode = async function() {
+    const code = document.getElementById('promo-code-input').value.trim().toUpperCase();
+    if (!code) return;
+    try {
+      const promo = await apiGetPromotionByCode(code);
+      appliedPromo = promo;
+      document.getElementById('promo-select').value = '';
+      showPromoResult(appliedPromo);
+    } catch {
+      const el = document.getElementById('promo-result');
+      el.style.display = 'block';
+      el.style.color   = 'var(--red)';
+      el.textContent   = 'Mã khuyến mãi không hợp lệ hoặc đã hết hạn.';
+      appliedPromo = null;
+    }
+    updateTotalDisplay();
+  };
+
+  function showPromoResult(promo) {
+    const el = document.getElementById('promo-result');
+    if (!promo) { el.style.display = 'none'; return; }
+    const raw      = Object.values(bill).reduce((s, i) => s + i.price * i.qty, 0);
+    const discount = calcDiscountLocal(promo, raw);
+    el.style.display = 'block';
+    if (discount === 0) {
+      el.style.color = 'var(--orange)';
+      el.innerHTML   = `⚠ Đơn chưa đạt tối thiểu ${parseFloat(promo.min_order||0).toLocaleString('vi')}đ`;
+    } else {
+      el.style.color = 'var(--green)';
+      el.innerHTML   = `✓ Áp dụng <strong>${promo.code}</strong> — Giảm ${discount.toLocaleString('vi')}đ`;
+    }
+  }
+
+  // ── Membership ──
+  window.lookupMember = async function() {
     const phone = document.getElementById('member-phone-input').value.trim();
     const el    = document.getElementById('member-result');
     if (!phone) { showToast('Vui lòng nhập SĐT!', 'warning'); return; }
 
-    const member = findMemberByPhone(phone);
-    el.style.display = 'block';
-
-    if (!member) {
+    try {
+      const member = await apiGetCustomerByPhone(phone);
+      appliedMember = member;
+      redeemPoints  = 0;
+      const maxRedeem = Math.min(member.total_points || 0, 500000);
+      el.style.display = 'block';
+      el.innerHTML = `
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:13px;font-weight:600">${member.name}</div>
+          <div style="font-size:11px;color:var(--muted)">${member.phone}</div>
+          <div style="font-size:12px;color:var(--muted);margin:6px 0">
+            Điểm: <strong style="color:var(--gold-deep)">${(member.total_points||0).toLocaleString('vi')} điểm</strong>
+          </div>
+          ${maxRedeem > 0 ? `
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="font-size:12px">Dùng điểm:</span>
+              <input type="number" id="redeem-input" value="0" min="0" max="${maxRedeem}"
+                     style="width:100px;padding:5px 8px;border:1px solid var(--border);
+                            border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)"
+                     oninput="onRedeemChange(this.value,${maxRedeem})"/>
+              <button class="btn btn-sm btn-ghost" onclick="useMaxRedeem(${maxRedeem})">Tối đa</button>
+            </div>
+          ` : ''}
+          <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="clearMember()">✕ Bỏ</button>
+        </div>`;
+      updateTotalDisplay();
+    } catch {
+      el.style.display = 'block';
       el.innerHTML = `
         <div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;">
-          <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
-            SĐT chưa đăng ký thành viên.
-          </div>
-          <button class="btn btn-sm btn-primary" onclick="createMemberInline('${phone}')">
-            + Đăng ký thành viên mới
-          </button>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:8px">SĐT chưa đăng ký thành viên.</div>
+          <button class="btn btn-sm btn-primary" onclick="createMemberInline('${phone}')">+ Đăng ký</button>
         </div>`;
       appliedMember = null;
       redeemPoints  = 0;
       updateTotalDisplay();
-      return;
     }
-
-    appliedMember = member;
-    redeemPoints  = 0;
-    const tier    = calcTier(member.totalSpend);
-    const maxRedeem = Math.min(member.points, MAX_REDEEM_PER_ORDER);
-
-    el.innerHTML = `
-      <div style="background:var(--surface2);border-radius:var(--radius);padding:12px;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <div style="width:32px;height:32px;border-radius:50%;
-                      background:linear-gradient(135deg,var(--red),var(--gold));
-                      display:flex;align-items:center;justify-content:center;
-                      color:#fff;font-weight:700;font-size:13px;flex-shrink:0">
-            ${member.name[0]}
-          </div>
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:600">${member.name}</div>
-            <div style="font-size:11px;color:var(--muted)">${member.phone}</div>
-          </div>
-          <span style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;
-                       background:rgba(212,160,23,0.15);color:${TIER_COLOR[tier.tier]}">
-            ${TIER_BADGE[tier.tier]} ${TIER_LABEL[tier.tier]}
-          </span>
-        </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
-          Điểm hiện có: <strong style="color:var(--gold-deep)">${member.points.toLocaleString('vi')} điểm</strong>
-          ${maxRedeem > 0 ? `(dùng tối đa ${maxRedeem.toLocaleString('vi')}đ)` : '(không đủ điểm để dùng)'}
-        </div>
-        ${maxRedeem > 0 ? `
-          <div style="display:flex;gap:6px;align-items:center">
-            <span style="font-size:12px;color:var(--text2);flex-shrink:0">Dùng điểm:</span>
-            <input type="number" id="redeem-input" value="0" min="0" max="${maxRedeem}"
-                   style="width:100px;padding:5px 8px;border:1px solid var(--border);
-                          border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)"
-                   oninput="onRedeemChange(this.value, ${maxRedeem})"/>
-            <span style="font-size:12px;color:var(--muted)">/ ${maxRedeem.toLocaleString('vi')} tối đa</span>
-            <button class="btn btn-sm btn-ghost" onclick="useMaxRedeem(${maxRedeem})">Dùng tối đa</button>
-          </div>
-        ` : ''}
-        <button class="btn btn-sm btn-ghost" style="margin-top:8px"
-                onclick="clearMember()">✕ Bỏ thành viên</button>
-      </div>`;
-    updateTotalDisplay();
   };
 
-  // Đăng ký thành viên nhanh ngay trong form tạo đơn
-  window.createMemberInline = function(phone) {
+  window.createMemberInline = async function(phone) {
     const name = prompt('Họ và tên khách hàng:');
     if (!name) return;
-    const newMember = {
-      id: 'mem-' + String(members.length + 1).padStart(3, '0'),
-      name: name.trim(),
-      phone, email: '',
-      tier: 'bronze',
-      totalSpend: 0, points: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-      orders: [],
-    };
-    members.push(newMember);
-    syncMembers();
-    showToast('Đã đăng ký thành viên mới!', 'success');
-    // Tự động lookup lại
-    document.getElementById('member-phone-input').value = phone;
-    lookupMember();
+    try {
+      const member = await apiCreateCustomer({ name: name.trim(), phone });
+      showToast('Đã đăng ký thành viên mới!', 'success');
+      document.getElementById('member-phone-input').value = phone;
+      appliedMember = member;
+      lookupMember();
+    } catch (err) {
+      showToast('Lỗi: ' + err.message, 'error');
+    }
   };
 
   window.onRedeemChange = function(val, max) {
@@ -592,252 +803,13 @@
     updateTotalDisplay();
   };
 
-  // Cập nhật hiển thị tổng tiền khi có thay đổi promo/member/redeem
-  function updateTotalDisplay() {
-    const raw      = Object.values(bill).reduce((s,i) => s + i.price * i.qty, 0);
-    const discount = appliedPromo ? calcDiscount(appliedPromo, raw) : 0;
-    const afterPromo = raw - discount;
-    const redeem   = redeemPoints;
-    const final    = Math.max(0, afterPromo - redeem);
-
-    // Discount row (promo)
-    const discountRow = document.getElementById('discount-row');
-    if (discountRow) {
-      discountRow.style.display = discount > 0 ? 'flex' : 'none';
-      if (discount > 0) {
-        document.getElementById('discount-label').textContent  = `KM (${appliedPromo.code})`;
-        document.getElementById('discount-amount').textContent = '-' + discount.toLocaleString('vi') + 'đ';
-      }
-    }
-
-    // Redeem row (member points)
-    const redeemRow = document.getElementById('redeem-row');
-    if (redeemRow) {
-      redeemRow.style.display = redeem > 0 ? 'flex' : 'none';
-      if (redeem > 0) {
-        document.getElementById('redeem-label').textContent  = `Điểm thành viên`;
-        document.getElementById('redeem-amount').textContent = '-' + redeem.toLocaleString('vi') + 'đ';
-      }
-    }
-
-    document.getElementById('bill-total').textContent = final.toLocaleString('vi') + 'đ';
-  }
-
-  // ── Populate promo select ──
-  function populatePromoSelect() {
-    const sel = document.getElementById('promo-select');
-    if (!sel) return;
-    sel.innerHTML = '<option value="">-- Chọn khuyến mãi --</option>';
-    promotions.filter(p => p.active).forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = `${p.name} (${p.code})`;
-      sel.appendChild(opt);
-    });
-  }
-
-  // ── Hiển thị kết quả promo ──
-  function showPromoResult(promo, total) {
-    const el = document.getElementById('promo-result');
-    if (!promo) { el.style.display = 'none'; return; }
-    const discount = calcDiscount(promo, total);
-    if (discount === 0 && total < promo.minOrder) {
-      el.style.display = 'block';
-      el.style.color = 'var(--orange)';
-      el.innerHTML = `⚠ Đơn chưa đạt tối thiểu ${promo.minOrder.toLocaleString('vi')}đ để áp dụng mã này.`;
-    } else {
-      el.style.display = 'block';
-      el.style.color = 'var(--green)';
-      el.innerHTML = `✓ Áp dụng <strong>${promo.code}</strong> — Giảm ${discount.toLocaleString('vi')}đ`;
-    }
-    updateDiscountRow(promo, total);
-  }
-
-  function updateDiscountRow(promo, total) {
-    const row    = document.getElementById('discount-row');
-    const label  = document.getElementById('discount-label');
-    const amount = document.getElementById('discount-amount');
-    const totalEl= document.getElementById('bill-total');
-    if (!promo) {
-      row.style.display = 'none';
-      return;
-    }
-    const discount = calcDiscount(promo, total);
-    if (discount > 0) {
-      row.style.display = 'flex';
-      label.textContent  = `Khuyến mãi (${promo.code})`;
-      amount.textContent = '-' + discount.toLocaleString('vi') + 'đ';
-      totalEl.textContent = Math.max(0, total - discount).toLocaleString('vi') + 'đ';
-    } else {
-      row.style.display = 'none';
-    }
-  }
-
-  window.applyPromoFromSelect = function() {
-    const id = document.getElementById('promo-select').value;
-    appliedPromo = id ? promotions.find(p => p.id === id) : null;
-    document.getElementById('promo-code-input').value = '';
-    const total = Object.values(bill).reduce((s,i) => s + i.price * i.qty, 0);
-    showPromoResult(appliedPromo, total);
-    if (!appliedPromo) {
-      document.getElementById('discount-row').style.display = 'none';
-      document.getElementById('bill-total').textContent =
-        total.toLocaleString('vi') + 'đ';
-    }
-  };
-
-  window.applyPromoCode = function() {
-    const code = document.getElementById('promo-code-input').value.trim();
-    if (!code) return;
-    const promo = findPromoByCode(code);
-    if (!promo) {
-      const el = document.getElementById('promo-result');
-      el.style.display = 'block';
-      el.style.color = 'var(--red)';
-      el.textContent = 'Mã khuyến mãi không hợp lệ hoặc đã hết hạn.';
-      appliedPromo = null;
-      document.getElementById('promo-select').value = '';
-      return;
-    }
-    appliedPromo = promo;
-    document.getElementById('promo-select').value = '';
-    const total = Object.values(bill).reduce((s,i) => s + i.price * i.qty, 0);
-    showPromoResult(appliedPromo, total);
-  };
-
-  window.showCreate = function() {
-    bill = {}; orderType = 'dine-in'; appliedPromo = null; appliedMember = null; redeemPoints = 0;
-    show('view-create');
-
-    // Reset UI
-    setType('dine-in');
-    document.getElementById('take-name').value  = '';
-    document.getElementById('take-phone').value = '';
-    document.getElementById('member-phone-input').value = '';
-    document.getElementById('member-result').style.display = 'none';
-    document.getElementById('bill-label').textContent = '';
-
-    // Populate bàn
-    const sel = document.getElementById('sel-table');
-    sel.innerHTML = '<option value="">-- Chọn bàn --</option>';
-    tables.filter(t => getTableStatus(t) !== 'full').forEach(t => {
-      const o = document.createElement('option');
-      o.value = t.id;
-      o.textContent = `Bàn ${t.num} (${TABLE_STATUS_LABEL[getTableStatus(t)]}, ${t.seats} chỗ)`;
-      sel.appendChild(o);
-    });
-
-    const pre = sessionStorage.getItem('new_order_table');
-    if (pre) { sel.value = pre; sessionStorage.removeItem('new_order_table'); }
-
-    populatePromoSelect();
-    renderMenuPanel();
-    renderBill();
-  };
-
-  window.setType = function(type) {
-    orderType = type;
-    document.querySelectorAll('.order-type-tab').forEach(t =>
-      t.classList.toggle('active', t.dataset.type === type));
-    document.getElementById('dine-fields').style.display  = type === 'dine-in'   ? '' : 'none';
-    document.getElementById('take-fields').style.display  = type === 'take-away' ? '' : 'none';
-  };
-
-  window.onTableSel = function() {
-    const tid = document.getElementById('sel-table').value;
-    const tbl = tables.find(t => t.id === tid);
-    document.getElementById('bill-label').textContent = tbl ? `Bàn ${tbl.num}` : '';
-  };
-
-  window.setCat = function(cat) {
-    catFilter = cat;
-    document.querySelectorAll('[data-cat]').forEach(c =>
-      c.classList.toggle('active', c.dataset.cat === cat));
-    renderMenuPanel();
-  };
-
-  window.renderMenuPanel = function() {
-    const q    = document.getElementById('menu-search').value.toLowerCase();
-    const cats = catFilter === 'all'
-      ? ['starter','main','dessert','drink'] : [catFilter];
-    let html = '';
-    cats.forEach(cat => {
-      const items = menuItems.filter(m => m.cat === cat && m.name.toLowerCase().includes(q));
-      if (!items.length) return;
-      html += `<div class="menu-section-title">${CAT_LABEL[cat]}</div>`;
-      html += items.map(m => `
-        <div class="menu-item-card ${!m.available ? 'unavailable' : ''}"
-             onclick="${m.available ? `addItem('${m.id}')` : ''}">
-          <div class="menu-item-emoji">${m.emoji}</div>
-          <div class="menu-item-name">
-            ${m.name}
-            ${!m.available
-              ? '<span class="badge badge-muted" style="font-size:10px;margin-left:6px">Hết</span>'
-              : ''}
-          </div>
-          <div class="menu-item-price">${m.price.toLocaleString('vi')}đ</div>
-        </div>
-      `).join('');
-    });
-    document.getElementById('menu-panel').innerHTML =
-      html || '<div style="color:var(--muted);text-align:center;padding:20px">Không tìm thấy món</div>';
-  };
-
-  window.addItem = function(menuId) {
-    const m = menuItems.find(m => m.id === menuId);
-    if (!m || !m.available) return;
-    if (bill[menuId]) bill[menuId].qty++;
-    else bill[menuId] = { name: m.name, price: m.price, qty: 1 };
-    renderBill();
-  };
-
-  window.changeQty = function(menuId, delta) {
-    if (!bill[menuId]) return;
-    bill[menuId].qty += delta;
-    if (bill[menuId].qty <= 0) delete bill[menuId];
-    renderBill();
-  };
-
-  function renderBill() {
-    const keys = Object.keys(bill);
-    const el   = document.getElementById('bill-items');
-    if (!keys.length) {
-      el.innerHTML = '<div class="bill-empty-msg">Chọn món để thêm vào đơn</div>';
-      document.getElementById('bill-total').textContent = '0đ';
-      document.getElementById('bill-count').textContent = '0';
-      return;
-    }
-    let total = 0, count = 0;
-    el.innerHTML = keys.map(id => {
-      const item = bill[id];
-      const sub  = item.price * item.qty;
-      total += sub; count += item.qty;
-      return `
-        <div class="bill-item">
-          <div class="bill-item-name">${item.name}</div>
-          <button class="qty-btn" onclick="changeQty('${id}',-1)">−</button>
-          <span class="bill-item-qty">${item.qty}</span>
-          <button class="qty-btn" onclick="changeQty('${id}',1)">+</button>
-          <div class="bill-item-price">${sub.toLocaleString('vi')}đ</div>
-        </div>
-      `;
-    }).join('');
-    document.getElementById('bill-count').textContent = count;
-    updateTotalDisplay();
-  }
-
-  window.submitCreate = function() {
+  window.submitCreate = async function() {
     if (!Object.keys(bill).length) return showToast('Chưa có món nào!', 'error');
 
-    let order = {
-      id:        'ord-' + String(orders.length + 1).padStart(3, '0'),
-      staffId:   session.id,
-      staffName: session.name,
-      status:    'unpaid',
-      type:      orderType,
-      createdAt: new Date().toISOString(),
-      items: Object.entries(bill).map(([menuId, item]) => ({
-        menuId, name: item.name, price: item.price, qty: item.qty, served: false,
+    const body = {
+      order_type: orderType,
+      items: Object.entries(bill).map(([dish_id, item]) => ({
+        dish_id, quantity: item.qty,
       })),
     };
 
@@ -846,147 +818,115 @@
       const guests = parseInt(document.getElementById('sel-guests').value) || 0;
       if (!tid)    return showToast('Vui lòng chọn bàn!', 'error');
       if (!guests) return showToast('Vui lòng nhập số khách!', 'error');
-      const tbl = tables.find(t => t.id === tid);
-      if (guests > tbl.seats) return showToast(`Bàn chỉ có ${tbl.seats} chỗ!`, 'error');
-      order.tableId = tid;
-      order.guests  = guests;
-      tbl.currentGuests = guests;
-      tbl.status = getTableStatus(tbl);
-      syncTables();
+      body.table_id = tid;
     } else {
       const name  = document.getElementById('take-name').value.trim();
       const phone = document.getElementById('take-phone').value.trim();
       if (!name) return showToast('Vui lòng nhập tên khách!', 'error');
-      order.tableId       = null;
-      order.customerName  = name;
-      order.customerPhone = phone || null;
+      body.customer_name  = name;
+      body.customer_phone = phone || undefined;
     }
 
-    // Áp dụng promotion nếu có
-    const rawTotal = order.items.reduce((s,i) => s + i.price * i.qty, 0);
-    if (appliedPromo) {
-      const discount = calcDiscount(appliedPromo, rawTotal);
-      if (discount > 0) {
-        order.promoId    = appliedPromo.id;
-        order.promoCode  = appliedPromo.code;
-        order.discount   = discount;
-        order.finalTotal = rawTotal - discount;
-      }
+    if (appliedPromo)   body.promo_code    = appliedPromo.code;
+    if (appliedMember)  body.customer_id   = appliedMember.customer_id;
+    if (redeemPoints)   body.redeem_points = redeemPoints;
+
+    try {
+      const newOrder = await apiCreateOrder(body);
+      orders.unshift(newOrder);
+      showToast('Tạo đơn thành công!', 'success');
+      bill = {};
+      showList();
+    } catch (err) {
+      showToast('Lỗi: ' + err.message, 'error');
     }
-    // Lưu member vào đơn nếu có
-    if (appliedMember) {
-      order.memberId    = appliedMember.id;
-      order.memberName  = appliedMember.name;
-      order.memberPhone = appliedMember.phone;
-      order.redeemPoints = redeemPoints;
-      if (redeemPoints > 0 && order.finalTotal !== undefined) {
-        order.finalTotal = Math.max(0, order.finalTotal - redeemPoints);
-      } else if (redeemPoints > 0) {
-        const base = order.items.reduce((s,i) => s + i.price * i.qty, 0);
-        const disc = order.discount || 0;
-        order.finalTotal = Math.max(0, base - disc - redeemPoints);
-      }
-    }
-    orders.push(order);
-    syncOrders();
-    showToast('Tạo đơn thành công!', 'success');
-    bill = {};
-    showList();
   };
 
-  // ══════════════════════════════════════════════
-  // DETAIL VIEW
-  // ══════════════════════════════════════════════
+  // ══ DETAIL VIEW ══
 
-  window.showDetail = function(orderId) {
-    const order = orders.find(o => o.id === orderId);
-    if (!order) return;
+  window.showDetail = async function(orderId) {
     currentOrderId = orderId;
     serveSelected  = {};
+    // Reload order mới nhất từ API
+    const order = await apiGetOrder(orderId);
+    const idx   = orders.findIndex(o => o.order_id === orderId);
+    if (idx >= 0) orders[idx] = order;
     show('view-detail');
     renderDetail();
   };
 
   function renderDetail() {
-    const order   = orders.find(o => o.id === currentOrderId);
+    const order = orders.find(o => o.order_id === currentOrderId);
     if (!order) return;
-    const tbl     = tables.find(t => t.id === order.tableId);
-    const rawTotal2 = calcOrderTotal(order);
-    const total   = order.finalTotal !== undefined ? order.finalTotal : rawTotal2;
-    const isDine  = order.type === 'dine-in';
-    const served  = order.items.filter(i => i.served).length;
-    const allDone = served === order.items.length;
+    const tbl     = tables.find(t => t.table_id === order.table_id);
+    const total   = parseFloat(order.total_amount) || 0;
+    const isDine  = order.order_type === 'dine-in';
+    const items   = order.order_items || [];
+    const served  = items.filter(i => i.is_served).length;
+    const allDone = served === items.length;
+    const isPending = ['Pending','Serving'].includes(order.status);
 
-    // Header
-    document.getElementById('detail-id').textContent =
-      `Đơn #${order.id.replace('ord-','')}`;
+    document.getElementById('detail-id').textContent = `Đơn #${order.order_id.slice(0,8)}`;
 
-    const time = new Date(order.createdAt).toLocaleString('vi');
+    const time = new Date(order.order_time).toLocaleString('vi');
     document.getElementById('detail-meta').innerHTML = `
-      <span class="badge ${STATUS_BADGE[order.status]}">${ORDER_STATUS_LABEL[order.status]}</span>
+      <span class="badge ${STATUS_BADGE[order.status]}">${STATUS_LABEL[order.status]}</span>
       ${isDine
-        ? `<span class="badge badge-red"  style="font-size:10px">🍽 Bàn ${tbl?.num || '?'}</span>`
-        : `<span class="badge badge-gold" style="font-size:10px">🥡 ${order.customerName || 'Mang về'}</span>`}
+        ? `<span class="badge badge-red" style="font-size:10px">🍽 Bàn ${tbl?.table_number || '?'}</span>`
+        : `<span class="badge badge-gold" style="font-size:10px">🥡 ${order.customer_name || 'Mang về'}</span>`}
       <span style="font-size:12px;color:var(--muted)">${time}</span>
-      <span style="font-size:12px;color:var(--muted)">NV: ${order.staffName}</span>
-      ${order.memberId ? `<span style="font-size:11px;padding:3px 8px;border-radius:20px;
-        background:rgba(212,160,23,0.15);color:var(--gold-deep)">👤 ${order.memberName}</span>` : ''}
+      <span style="font-size:12px;color:var(--muted)">NV: ${order.employee?.name || '?'}</span>
     `;
 
-    // Actions (header right)
     let actions = '';
-    if (order.status === 'unpaid') {
-      actions += `<button class="btn btn-danger" onclick="cancelOrder('${order.id}')">Hủy đơn</button>`;
+    if (isPending) {
+      actions += `<button class="btn btn-danger" onclick="cancelOrder('${order.order_id}')">Hủy đơn</button>`;
       actions += `<button class="btn btn-gold"   onclick="showPayment()">💳 Thanh toán</button>`;
     }
     document.getElementById('detail-actions').innerHTML = actions;
 
-    // Items list
-    const serveBar = document.getElementById('serve-bar');
-    document.getElementById('detail-items').innerHTML = order.items.map((item, idx) => {
-      const isServed  = item.served;
-      const isChecked = serveSelected[idx] !== undefined;
+    // Items
+    document.getElementById('detail-items').innerHTML = items.map((item, idx) => {
+      const isServed  = item.is_served;
+      const isChecked = serveSelected[item.order_item_id] !== undefined;
+      const dishName  = item.dish?.dish_name || item.dish_id;
+      const subtotal  = parseFloat(item.subtotal) || 0;
       return `
-        <div class="item-row ${isServed ? 'served' : ''}" id="item-row-${idx}">
-          ${order.status === 'unpaid' && !isServed ? `
+        <div class="item-row ${isServed ? 'served' : ''}">
+          ${isPending && !isServed ? `
             <div class="item-check ${isChecked ? 'checked' : ''}"
-                 id="chk-${idx}" onclick="toggleServe(${idx}, ${item.qty})">
+                 onclick="toggleServe('${item.order_item_id}', ${item.quantity})">
               ${isChecked ? '✓' : ''}
             </div>
           ` : `
-            <div class="item-check ${isServed ? 'checked' : ''}"
-                 style="cursor:default;${isServed?'':'opacity:0.3'}">
+            <div class="item-check ${isServed ? 'checked' : ''}" style="cursor:default">
               ${isServed ? '✓' : ''}
             </div>
           `}
-          <div class="item-name">${item.name}</div>
+          <div class="item-name">${dishName}</div>
           <div class="item-qty">
             ${isServed
               ? `<span class="badge badge-green" style="font-size:10px">Đã phục vụ</span>`
-              : `<span style="color:var(--muted)">x${item.qty}</span>`}
+              : `<span style="color:var(--muted)">x${item.quantity}</span>`}
           </div>
-          ${!isServed && !isChecked ? `
-            <div class="item-price">${(item.price * item.qty).toLocaleString('vi')}đ</div>
-          ` : !isServed && isChecked ? `
+          ${isChecked && !isServed ? `
             <div style="display:flex;align-items:center;gap:6px">
-              <button class="qty-btn" onclick="chgServeQty(${idx},-1,${item.qty})">−</button>
-              <input type="number" id="srv-qty-${idx}"
-                     value="${serveSelected[idx]}" min="1" max="${item.qty}"
-                     class="serve-qty-input"
-                     onchange="setServeQty(${idx},this.value,${item.qty})"/>
-              <span style="font-size:11px;color:var(--muted)">/${item.qty}</span>
-              <button class="qty-btn" onclick="chgServeQty(${idx},1,${item.qty})">+</button>
+              <button class="qty-btn" onclick="chgServeQty('${item.order_item_id}',-1,${item.quantity})">−</button>
+              <input type="number" value="${serveSelected[item.order_item_id]}"
+                     min="1" max="${item.quantity}" class="serve-qty-input"
+                     onchange="setServeQty('${item.order_item_id}',this.value,${item.quantity})"/>
+              <span style="font-size:11px;color:var(--muted)">/${item.quantity}</span>
+              <button class="qty-btn" onclick="chgServeQty('${item.order_item_id}',1,${item.quantity})">+</button>
             </div>
-          ` : `
-            <div class="item-price">${(item.price * item.qty).toLocaleString('vi')}đ</div>
-          `}
+          ` : `<div class="item-price">${subtotal.toLocaleString('vi')}đ</div>`}
         </div>
       `;
     }).join('');
 
     // Serve bar
     const selectedCount = Object.keys(serveSelected).length;
-    if (order.status === 'unpaid' && selectedCount > 0) {
+    const serveBar = document.getElementById('serve-bar');
+    if (isPending && selectedCount > 0) {
       serveBar.style.display = 'flex';
       document.getElementById('serve-bar-label').textContent =
         `Đã chọn ${selectedCount} món để xác nhận phục vụ`;
@@ -994,59 +934,40 @@
       serveBar.style.display = 'none';
     }
 
-    // Serve progress
     document.getElementById('serve-progress').textContent =
-      `${served}/${order.items.length} món đã phục vụ`;
+      `${served}/${items.length} món đã phục vụ`;
 
     // Summary
+    const promoEvent = order.events?.[0];
     document.getElementById('detail-summary').innerHTML = `
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         ${isDine ? `
           <div style="display:flex;justify-content:space-between">
             <span style="color:var(--muted)">Bàn</span>
-            <strong>Bàn ${tbl?.num || '?'}</strong>
-          </div>
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--muted)">Số khách</span>
-            <strong>${order.guests || '?'}</strong>
+            <strong>Bàn ${tbl?.table_number || '?'}</strong>
           </div>
         ` : `
           <div style="display:flex;justify-content:space-between">
             <span style="color:var(--muted)">Khách</span>
-            <strong>${order.customerName}</strong>
+            <strong>${order.customer_name || 'Khách lẻ'}</strong>
           </div>
-          ${order.customerPhone ? `
-            <div style="display:flex;justify-content:space-between">
-              <span style="color:var(--muted)">SĐT</span>
-              <strong>${order.customerPhone}</strong>
-            </div>
-          ` : ''}
         `}
-        <div class="vn-divider" style="margin:8px 0"></div>
+        <div class="vn-divider" style="margin:4px 0"></div>
         <div style="display:flex;justify-content:space-between">
           <span style="color:var(--muted)">Số món</span>
-          <strong>${order.items.length} món (${order.items.reduce((s,i)=>s+i.qty,0)} phần)</strong>
+          <strong>${items.length} món</strong>
         </div>
         <div style="display:flex;justify-content:space-between">
           <span style="color:var(--muted)">Đã phục vụ</span>
-          <strong style="color:${allDone?'var(--green)':'var(--orange)'}">${served}/${order.items.length}</strong>
+          <strong style="color:${allDone?'var(--green)':'var(--orange)'}">${served}/${items.length}</strong>
         </div>
-        <div class="vn-divider" style="margin:8px 0"></div>
-        ${order.memberId ? `
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:var(--muted)">Thành viên</span>
-          <strong style="color:var(--gold-deep)">${order.memberName} (${order.memberPhone})</strong>
-        </div>` : ''}
-        ${order.redeemPoints ? `
-        <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--blue)">
-          <span>Dùng điểm</span>
-          <span>-${order.redeemPoints.toLocaleString('vi')}đ</span>
-        </div>` : ''}
-        ${order.discount ? `
-        <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--green)">
-          <span>Khuyến mãi (${order.promoCode})</span>
-          <span>-${order.discount.toLocaleString('vi')}đ</span>
-        </div>` : ''}
+        ${promoEvent ? `
+          <div style="display:flex;justify-content:space-between;color:var(--green)">
+            <span>Khuyến mãi</span>
+            <span>-${parseFloat(promoEvent.discount_amount).toLocaleString('vi')}đ</span>
+          </div>
+        ` : ''}
+        <div class="vn-divider" style="margin:4px 0"></div>
         <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700">
           <span>Tổng cộng</span>
           <span style="font-family:var(--font-display);color:var(--red)">${total.toLocaleString('vi')}đ</span>
@@ -1056,45 +977,35 @@
 
     // Payment box
     const payBox = document.getElementById('payment-box');
-    payBox.style.display = order.status === 'unpaid' ? '' : 'none';
-    if (order.status === 'unpaid') {
+    payBox.style.display = isPending ? '' : 'none';
+    if (isPending) {
       document.getElementById('payment-info').innerHTML = `
-        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;
-                    margin-bottom:4px">
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700">
           <span>Số tiền cần thu</span>
-          <span style="font-family:var(--font-display);color:var(--red)">
-            ${total.toLocaleString('vi')}đ
-          </span>
+          <span style="color:var(--red)">${total.toLocaleString('vi')}đ</span>
         </div>
         ${!allDone ? `<div style="color:var(--orange);font-size:12px;margin-top:6px">
-          ⚠ Còn ${order.items.length - served} món chưa phục vụ
+          ⚠ Còn ${items.length - served} món chưa phục vụ
         </div>` : ''}
       `;
     }
   }
 
-  // ── Chọn món để xác nhận phục vụ ──
-  window.toggleServe = function(idx, maxQty) {
-    if (serveSelected[idx] !== undefined) {
-      delete serveSelected[idx];
-    } else {
-      serveSelected[idx] = maxQty;
-    }
+  // ── Serve ──
+  window.toggleServe = function(itemId, maxQty) {
+    if (serveSelected[itemId] !== undefined) delete serveSelected[itemId];
+    else serveSelected[itemId] = maxQty;
     renderDetail();
   };
 
-  window.chgServeQty = function(idx, delta, max) {
-    if (serveSelected[idx] === undefined) return;
-    let v = serveSelected[idx] + delta;
-    v = Math.max(1, Math.min(max, v));
-    serveSelected[idx] = v;
+  window.chgServeQty = function(itemId, delta, max) {
+    if (serveSelected[itemId] === undefined) return;
+    serveSelected[itemId] = Math.max(1, Math.min(max, serveSelected[itemId] + delta));
     renderDetail();
   };
 
-  window.setServeQty = function(idx, val, max) {
-    let v = parseInt(val) || 1;
-    v = Math.max(1, Math.min(max, v));
-    serveSelected[idx] = v;
+  window.setServeQty = function(itemId, val, max) {
+    serveSelected[itemId] = Math.max(1, Math.min(max, parseInt(val) || 1));
   };
 
   window.clearServeSelect = function() {
@@ -1102,100 +1013,82 @@
     renderDetail();
   };
 
-  window.confirmServe = function() {
-    const order = orders.find(o => o.id === currentOrderId);
-    if (!order) return;
+  window.confirmServe = async function() {
+    const entries = Object.entries(serveSelected);
+    if (!entries.length) return showToast('Chưa chọn món nào!', 'warning');
 
-    let count   = 0;
-    const toAdd = [];
-
-    Object.entries(serveSelected).forEach(([idx, servedQty]) => {
-      // Dùng thẳng index của order.items gốc — không dùng filter
-      const item = order.items[parseInt(idx)];
-      if (!item || item.served) return;
-      count++;
-      if (servedQty >= item.qty) {
-        item.served = true;
-      } else {
-        const remaining = item.qty - servedQty;
-        item.qty    = servedQty;
-        item.served = true;
-        // Push sau để không lệch index trong vòng lặp
-        toAdd.push({
-          menuId: item.menuId, name: item.name,
-          price: item.price, qty: remaining, served: false,
-        });
+    try {
+      for (const [itemId, qty] of entries) {
+        const order = orders.find(o => o.order_id === currentOrderId);
+        const item  = order?.order_items?.find(i => i.order_item_id === itemId);
+        await apiServeItem(currentOrderId, itemId, qty < item?.quantity ? qty : null);
       }
-    });
-
-    if (!count) return showToast('Chưa chọn món nào!', 'warning');
-    toAdd.forEach(i => order.items.push(i));
-
-    serveSelected = {};
-    syncOrders();
-    showToast('Đã xác nhận phục vụ ' + count + ' món', 'success');
-    renderDetail();
+      // Reload order
+      const updated = await apiGetOrder(currentOrderId);
+      const idx = orders.findIndex(o => o.order_id === currentOrderId);
+      if (idx >= 0) orders[idx] = updated;
+      serveSelected = {};
+      showToast(`Đã xác nhận phục vụ ${entries.length} món`, 'success');
+      renderDetail();
+    } catch (err) {
+      showToast('Lỗi: ' + err.message, 'error');
+    }
   };
 
-  // ── Thanh toán ──
+  // ── Payment ──
   window.showPayment = function() {
     document.getElementById('payment-box').scrollIntoView({ behavior: 'smooth' });
   };
 
-  window.processPayment = function() {
-    const order = orders.find(o => o.id === currentOrderId);
+  window.processPayment = async function() {
+    const order   = orders.find(o => o.order_id === currentOrderId);
     if (!order) return;
-    const served  = order.items.filter(i => i.served).length;
-    const allDone = served === order.items.length;
-
-    const body = allDone
-      ? `Xác nhận thanh toán <strong>${calcOrderTotal(order).toLocaleString('vi')}đ</strong>?`
-      : `Còn <strong>${order.items.length - served} món chưa phục vụ</strong>. 
-         Bạn có chắc muốn thanh toán luôn?`;
+    const items   = order.order_items || [];
+    const served  = items.filter(i => i.is_served).length;
+    const allDone = served === items.length;
+    const total   = parseFloat(order.total_amount) || 0;
 
     confirmDialog({
-      title: 'Xác nhận thanh toán', body,
+      title: 'Xác nhận thanh toán',
+      body: allDone
+        ? `Xác nhận thanh toán <strong>${total.toLocaleString('vi')}đ</strong>?`
+        : `Còn <strong>${items.length - served} món chưa phục vụ</strong>. Bạn có chắc muốn thanh toán luôn?`,
       confirmLabel: 'Thanh toán', confirmClass: 'btn-gold',
-      onConfirm: () => {
-        order.status = 'paid';
-        if (order.type === 'dine-in') {
-          const tbl = tables.find(t => t.id === order.tableId);
-          if (tbl) { tbl.currentGuests = 0; tbl.status = 'free'; syncTables(); }
+      onConfirm: async () => {
+      try {
+        await apiUpdateOrderStatus(currentOrderId, 'Completed');
+        const updated = await apiGetOrder(currentOrderId);
+        const idx = orders.findIndex(o => o.order_id === currentOrderId);
+        if (idx >= 0) orders[idx] = updated;
+
+        if (updated.table_id) {
+          await apiUpdateTable(updated.table_id, { status: 'Available' });
+          const tIdx = tables.findIndex(t => t.table_id === updated.table_id);
+          if (tIdx >= 0) tables[tIdx].status = 'Available';
         }
-        // Tích điểm cho thành viên (không áp dụng đơn hủy)
-        if (order.memberId) {
-          const member = members.find(m => m.id === order.memberId);
-          if (member) {
-            const finalAmt = order.finalTotal !== undefined
-              ? order.finalTotal
-              : calcOrderTotal(order);
-            const redeemed = order.redeemPoints || 0;
-            const earned   = updateMemberAfterPayment(member, finalAmt, redeemed, order.id);
-            showToast('Thanh toán thành công! Tích ' + earned.toLocaleString('vi') + ' điểm cho ' + member.name, 'success');
-          }
-        } else {
-          showToast('Thanh toán thành công!', 'success');
-        }
-        syncOrders();
+
+        showToast('Thanh toán thành công!', 'success');
         renderDetail();
         renderList();
-      },
+      } catch (err) {
+        showToast('Lỗi: ' + err.message, 'error');
+      }
+    },
     });
   };
 
-  // ── Hủy đơn ──
-  window.cancelOrder = function(orderId) {
-    const o = orders.find(o => o.id === orderId);
-    if (!o) return;
-    const served    = o.items.filter(i => i.served).length;
-    const hasServed = served > 0;
-    const allServed = served === o.items.length;
+  // ── Cancel ──
+  window.cancelOrder = async function(orderId) {
+    const order = orders.find(o => o.order_id === orderId);
+    if (!order) return;
+    const items   = order.order_items || [];
+    const served  = items.filter(i => i.is_served).length;
+    const allServed = served === items.length && items.length > 0;
 
     if (allServed) {
       confirmDialog({
         title: 'Không thể hủy',
-        body: `Tất cả <strong>${served} món</strong> đã phục vụ. 
-               Vui lòng liên hệ quản lý để xử lý.`,
+        body: `Tất cả món đã phục vụ. Vui lòng liên hệ quản lý.`,
         confirmLabel: 'Đã hiểu', confirmClass: 'btn-ghost',
         onConfirm: () => {},
       });
@@ -1203,27 +1096,28 @@
     }
 
     confirmDialog({
-      title: hasServed ? '⚠ Hủy đơn một phần' : 'Hủy đơn',
-      body: hasServed
-        ? `Đơn có <strong>${served} món đã phục vụ</strong> và 
-           <strong>${o.items.length - served} món chưa phục vụ</strong>.<br><br>
-           Các món đã phục vụ vẫn cần thanh toán.`
+      title: served > 0 ? '⚠ Hủy đơn một phần' : 'Hủy đơn',
+      body: served > 0
+        ? `Có <strong>${served} món đã phục vụ</strong>. Bạn có chắc muốn hủy?`
         : 'Bạn có chắc muốn hủy đơn này không?',
       confirmLabel: 'Xác nhận hủy', confirmClass: 'btn-danger',
-      onConfirm: () => {
-        o.status = 'cancelled';
-        syncOrders();
-        showToast('Đã hủy đơn', 'warning');
-        // Nếu đang ở detail view thì refresh, nếu ở list thì render list
-        if (document.getElementById('view-detail').style.display !== 'none') {
-          renderDetail();
+      onConfirm: async () => {
+        try {
+          await apiUpdateOrderStatus(orderId, 'Cancelled');
+          const updated = await apiGetOrder(orderId);
+          const idx = orders.findIndex(o => o.order_id === orderId);
+          if (idx >= 0) orders[idx] = updated;
+          showToast('Đã hủy đơn', 'warning');
+          if (document.getElementById('view-detail').style.display !== 'none') renderDetail();
+          renderList();
+        } catch (err) {
+          showToast('Lỗi: ' + err.message, 'error');
         }
-        renderList();
       },
     });
   };
 
-  // ── Navigation helpers ──
+  // ── Helpers ──
   function show(viewId) {
     ['view-list','view-create','view-detail'].forEach(id => {
       document.getElementById(id).style.display = id === viewId ? '' : 'none';
@@ -1237,9 +1131,7 @@
     renderList();
   };
 
-  // ── Init ──
-  renderList();
-  if (new URLSearchParams(window.location.search).get('new') === '1') showCreate();
+  init();
 </script>
 </body>
 </html>

@@ -96,9 +96,9 @@
 </div>
 
 <script type="module">
-  import { requireManager }                          from '../js/auth.js';
-  import { renderSidebar, renderHeader, showToast }  from '../js/ui.js';
-  import { registerStaff }                           from '../js/auth.js';
+  import { requireManager }                         from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast } from '../js/ui.js';
+  import { apiCreateStaff }                         from '../js/api.js';
 
   const session = requireManager();
   if (!session) throw new Error();
@@ -107,13 +107,12 @@
   renderHeader({
     title: 'Tạo tài khoản nhân viên',
     sub: 'Quản lý tạo tài khoản cho nhân viên mới',
-    showBack: true,
-    backUrl: 'staff.html',
+    showBack: true, backUrl: 'staff.html',
   });
 
   const createdThisSession = [];
 
-  window.handleRegister = function() {
+  window.handleRegister = async function() {
     const errEl     = document.getElementById('reg-error');
     const successEl = document.getElementById('reg-success');
     errEl.style.display     = 'none';
@@ -125,46 +124,39 @@
     const confirm  = document.getElementById('reg-confirm').value;
     const phone    = document.getElementById('reg-phone').value.trim();
 
-    // Validate
     if (!name || !username || !password || !confirm) {
       errEl.textContent = 'Vui lòng điền đầy đủ các trường bắt buộc (*).';
-      errEl.style.display = 'block';
-      return;
+      errEl.style.display = 'block'; return;
+    }
+    if (password.length < 6) {
+      errEl.textContent = 'Mật khẩu tối thiểu 6 ký tự.';
+      errEl.style.display = 'block'; return;
     }
     if (password !== confirm) {
       errEl.textContent = 'Mật khẩu xác nhận không khớp.';
-      errEl.style.display = 'block';
-      return;
+      errEl.style.display = 'block'; return;
     }
 
-    const result = registerStaff({ name, username, password, phone }, session);
-
-    if (!result.success) {
-      errEl.textContent = result.error;
+    try {
+      await apiCreateStaff(name, username, password, phone);
+      successEl.textContent = `✓ Tạo tài khoản "${name}" (${username}) thành công!`;
+      successEl.style.display = 'block';
+      createdThisSession.push({ name, username });
+      renderCreatedList();
+      ['reg-name','reg-username','reg-password','reg-confirm','reg-phone']
+        .forEach(id => document.getElementById(id).value = '');
+      document.getElementById('reg-name').focus();
+    } catch (err) {
+      errEl.textContent = err.message;
       errEl.style.display = 'block';
-      return;
     }
-
-    // Thành công
-    successEl.textContent = `✓ Tạo tài khoản "${name}" (${username}) thành công!`;
-    successEl.style.display = 'block';
-
-    // Lưu vào danh sách phiên
-    createdThisSession.push({ name, username });
-    renderCreatedList();
-
-    // Reset form
-    ['reg-name','reg-username','reg-password','reg-confirm','reg-phone']
-      .forEach(id => document.getElementById(id).value = '');
-
-    document.getElementById('reg-name').focus();
   };
 
   function renderCreatedList() {
     if (!createdThisSession.length) return;
     document.getElementById('created-list-wrap').style.display = '';
     document.getElementById('created-list').innerHTML =
-      createdThisSession.map((u, i) => `
+      createdThisSession.map(u => `
         <div style="display:flex;align-items:center;gap:10px;
                     padding:8px 0;border-bottom:1px solid var(--border)">
           <div style="width:28px;height:28px;border-radius:50%;
@@ -181,8 +173,7 @@
       `).join('');
   }
 
-  // Enter để submit
-  document.addEventListener('keydown', (e) => {
+  document.addEventListener('keydown', e => {
     if (e.key === 'Enter') handleRegister();
   });
 </script>

@@ -47,32 +47,39 @@
 </div>
 
 <script type="module">
-  import { requireManager }                                from '../js/auth.js';
+  import { requireManager } from '../js/auth.js';
   import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
-  import { users, orders, syncUsers }                      from '../js/data.js';
+  import { apiGetEmployees, apiDeleteEmployee } from '../js/api.js';
 
   const session = requireManager();
   if (!session) throw new Error();
 
   renderSidebar('staff');
-  renderHeader({
-    title: 'Nhân viên',
-    sub: `${users.length} tài khoản`,
-    showBack: true,
-    backUrl: 'dashboard.html',
-  });
+  renderHeader({ title: 'Nhân viên', sub: 'Đang tải...', showBack: true, backUrl: 'dashboard.html' });
 
   const colors = ['#922B21','#0891b2','#b45309','#065f46','#7c3aed','#be123c'];
+  let employees = [];
+
+  async function loadStaff() {
+    try {
+      employees = await apiGetEmployees();
+      renderHeader({ title: 'Nhân viên', sub: `${employees.length} tài khoản`, showBack: true, backUrl: 'dashboard.html' });
+      renderStaff();
+    } catch (err) {
+      showToast('Lỗi tải dữ liệu: ' + err.message, 'error');
+    }
+  }
 
   window.renderStaff = function() {
     const q = document.getElementById('staff-search').value.toLowerCase();
-    const filtered = users.filter(u =>
+    const filtered = employees.filter(u =>
       u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
     );
 
     document.getElementById('staff-tbody').innerHTML = filtered.map((u, i) => {
-      const orderCount = orders.filter(o => o.staffId === u.id).length;
-      const isCurrentUser = u.id === session.id;
+      const isCurrentUser = u.employee_id === session.employee_id;
+      const joinDate = u.created_at
+        ? new Date(u.created_at).toLocaleDateString('vi') : '—';
       return `
         <tr>
           <td>
@@ -86,16 +93,17 @@
           </td>
           <td style="color:var(--muted);font-family:monospace">${u.username}</td>
           <td>
-            <span class="badge ${u.role === 'manager' ? 'badge-red' : 'badge-blue'}">
-              ${u.role === 'manager' ? 'Quản lý' : 'Nhân viên'}
+            <span class="badge ${u.role === 'Manager' ? 'badge-red' : 'badge-blue'}">
+              ${u.role === 'Manager' ? 'Quản lý' : 'Nhân viên'}
             </span>
           </td>
           <td style="color:var(--muted)">${u.phone || '—'}</td>
-          <td style="color:var(--muted);font-size:12px">${u.createdAt}</td>
-          <td><span class="badge badge-muted">${orderCount} đơn</span></td>
+          <td style="color:var(--muted);font-size:12px">${joinDate}</td>
+          <td><span class="badge badge-muted">${u._count?.orders ?? 0} đơn</span></td>
           <td>
             ${!isCurrentUser ? `
-              <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}', '${u.name}')">
+              <button class="btn btn-sm btn-danger"
+                      onclick="deleteUser('${u.employee_id}', '${u.name}')">
                 Xóa
               </button>
             ` : '<span style="color:var(--muted);font-size:12px">—</span>'}
@@ -108,21 +116,22 @@
   window.deleteUser = function(userId, userName) {
     confirmDialog({
       title: 'Xóa tài khoản',
-      body: `Bạn có chắc muốn xóa tài khoản <strong>${userName}</strong>? Hành động này không thể hoàn tác.`,
-      confirmLabel: 'Xóa',
-      confirmClass: 'btn-danger',
-      onConfirm: () => {
-        const idx = users.findIndex(u => u.id === userId);
-        if (idx === -1) return;
-        users.splice(idx, 1);
-        syncUsers(); // lưu lại vào sessionStorage
-        showToast(`Đã xóa tài khoản ${userName}`, 'success');
-        renderStaff();
+      body: `Bạn có chắc muốn xóa tài khoản <strong>${userName}</strong>?`,
+      confirmLabel: 'Xóa', confirmClass: 'btn-danger',
+      onConfirm: async () => {
+        try {
+          await apiDeleteEmployee(userId);
+          employees = employees.filter(u => u.employee_id !== userId);
+          showToast(`Đã xóa tài khoản ${userName}`, 'success');
+          renderStaff();
+        } catch (err) {
+          showToast('Lỗi: ' + err.message, 'error');
+        }
       },
     });
   };
 
-  renderStaff();
+  loadStaff();
 </script>
 </body>
 </html>

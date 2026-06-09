@@ -106,8 +106,8 @@
 </div>
 
 <script type="module">
-  import { login, getSession } from '../js/auth.js';
-  import { users }             from '../js/data.js';
+  import { login, getSession, registerManager } from '../js/auth.js';  
+  //import { users }             from '../js/data.js';
 
   // Đã login rồi → về dashboard
   if (getSession()) {
@@ -127,7 +127,7 @@
   };
 
   // ── Đăng nhập (Staff + Manager) ──
-  window.handleLogin = function() {
+  window.handleLogin = async function() {
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
     const errEl    = document.getElementById('login-error');
@@ -138,7 +138,7 @@
       return;
     }
 
-    const result = login(username, password);
+    const result = await login(username, password);
     if (!result.success) {
       errEl.textContent = result.error;
       errEl.style.display = 'block';
@@ -150,7 +150,7 @@
   };
 
   // ── Đăng ký Manager mới ──
-  window.handleRegister = function() {
+  window.handleRegister = async function() {
     const errEl     = document.getElementById('reg-error');
     const successEl = document.getElementById('reg-success');
     errEl.style.display     = 'none';
@@ -178,21 +178,20 @@
       errEl.style.display = 'block';
       return;
     }
-    const exists = users.find(u => u.username === username);
-    if (exists) {
-      errEl.textContent = 'Tên đăng nhập đã tồn tại.';
+    // const exists = users.find(u => u.username === username);
+    // if (exists) {
+    //   errEl.textContent = 'Tên đăng nhập đã tồn tại.';
+    //   errEl.style.display = 'block';
+    //   return;
+    // }
+
+    // Tạo tài khoản Manager mới
+    const result = await registerManager(name, username, password, phone);
+    if (!result.success) {
+      errEl.textContent = result.error;
       errEl.style.display = 'block';
       return;
     }
-
-    // Tạo tài khoản Manager mới
-    users.push({
-      id: 'u' + (users.length + 1),
-      name, username, password,
-      role: 'manager',
-      phone: phone || '',
-      createdAt: new Date().toISOString().split('T')[0],
-    });
 
     // Hiện thành công + tự chuyển sang tab đăng nhập sau 2 giây
     successEl.textContent = `✓ Tạo tài khoản "${name}" thành công! Đang chuyển sang đăng nhập...`;

@@ -20,29 +20,33 @@
         <input class="search-input" placeholder="🔍 Tìm khuyến mãi..."
                id="promo-search" oninput="renderList()"/>
         <div class="filter-group">
-          <div class="filter-chip active" data-af="all"    onclick="setFilter('all')">Tất cả</div>
-          <div class="filter-chip"        data-af="active" onclick="setFilter('active')">Đang hoạt động</div>
+          <div class="filter-chip active" data-af="all"      onclick="setFilter('all')">Tất cả</div>
+          <div class="filter-chip"        data-af="active"   onclick="setFilter('active')">Đang hoạt động</div>
           <div class="filter-chip"        data-af="inactive" onclick="setFilter('inactive')">Tạm dừng</div>
         </div>
         <button class="btn btn-primary" onclick="openModal()">+ Tạo khuyến mãi</button>
       </div>
 
-      <!-- Danh sách -->
       <div class="card" style="padding:0;overflow:hidden">
         <table class="data-table">
           <thead>
             <tr>
               <th>Tên khuyến mãi</th>
               <th>Mã</th>
+              <th>Loại sự kiện</th>
               <th>Loại giảm</th>
               <th>Giá trị</th>
               <th>Đơn tối thiểu</th>
               <th>Trạng thái</th>
-              <th>Ngày tạo</th>
+              <th>Thời gian</th>
               <th>Thao tác</th>
             </tr>
           </thead>
-          <tbody id="promo-tbody"></tbody>
+          <tbody id="promo-tbody">
+            <tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted)">
+              Đang tải...
+            </td></tr>
+          </tbody>
         </table>
       </div>
 
@@ -65,12 +69,23 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Mã khuyến mãi (coupon code) *</label>
+        <label class="form-label">Mã khuyến mãi *</label>
         <input class="form-input" id="f-code" placeholder="VD: WEEKEND10"
                style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"/>
         <div style="font-size:11px;color:var(--muted);margin-top:4px">
-          Nhân viên hoặc khách nhập mã này để áp dụng. Không phân biệt hoa thường.
+          Chỉ chữ hoa và số, không dấu cách. Không thể sửa sau khi tạo.
         </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Loại sự kiện *</label>
+        <select class="form-input" id="f-event-type">
+          <option value="general">Chung</option>
+          <option value="birthday">Sinh nhật</option>
+          <option value="holiday">Ngày lễ</option>
+          <option value="weekend">Cuối tuần</option>
+          <option value="loyalty">Khách thân thiết</option>
+        </select>
       </div>
 
       <div class="form-group">
@@ -98,9 +113,22 @@
         <label class="form-label">Đơn tối thiểu (đ)</label>
         <input class="form-input" id="f-min" type="number" min="0"
                placeholder="0 = không giới hạn"/>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">
-          Chỉ áp dụng khi tổng đơn đạt mức này trở lên.
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Ngày bắt đầu</label>
+          <input class="form-input" id="f-start" type="date"/>
         </div>
+        <div class="form-group">
+          <label class="form-label">Ngày kết thúc</label>
+          <input class="form-input" id="f-end" type="date"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Mô tả</label>
+        <input class="form-input" id="f-desc" placeholder="Mô tả ngắn (tuỳ chọn)"/>
       </div>
 
       <div class="form-group">
@@ -117,7 +145,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal()">Hủy</button>
-      <button class="btn btn-primary" onclick="savePromo()">Lưu</button>
+      <button class="btn btn-primary" id="save-btn" onclick="savePromo()">Lưu</button>
     </div>
   </div>
 </div>
@@ -125,7 +153,10 @@
 <script type="module">
   import { requireManager }  from '../js/auth.js';
   import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
-  import { promotions, syncPromotions } from '../js/data.js';
+  import {
+    apiGetPromotions, apiCreatePromotion,
+    apiUpdatePromotion, apiDeletePromotion,
+  } from '../js/api.js';
 
   const session = requireManager();
   if (!session) throw new Error();
@@ -136,10 +167,22 @@
     showBack: true, backUrl: 'dashboard.html',
   });
 
+  let allPromos    = [];   // cache từ API
   let activeFilter = 'all';
   let editingId    = null;
 
-  // ── Filter ──
+  // ── Load dữ liệu từ API ───────────────────────────────────
+  async function loadPromos() {
+    try {
+      const data = await apiGetPromotions();
+      allPromos = data || [];
+      renderList();
+    } catch (err) {
+      showToast('Không thể tải danh sách khuyến mãi: ' + err.message, 'error');
+    }
+  }
+
+  // ── Filter ────────────────────────────────────────────────
   window.setFilter = function(f) {
     activeFilter = f;
     document.querySelectorAll('[data-af]').forEach(c =>
@@ -147,14 +190,20 @@
     renderList();
   };
 
-  // ── Render danh sách ──
+  // ── Render danh sách ──────────────────────────────────────
   window.renderList = function() {
     const q = document.getElementById('promo-search').value.toLowerCase();
-    const list = promotions.filter(p => {
-      if (activeFilter === 'active'   && !p.active) return false;
-      if (activeFilter === 'inactive' &&  p.active) return false;
+    const list = allPromos.filter(p => {
+      if (activeFilter === 'active'   && !p.is_active) return false;
+      if (activeFilter === 'inactive' &&  p.is_active) return false;
       return p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
     });
+
+    const fmtDate = d => d ? new Date(d).toLocaleDateString('vi') : '—';
+    const fmtTime = (s, e) => {
+      if (!s && !e) return '<span style="color:var(--muted)">Không giới hạn</span>';
+      return `${fmtDate(s)} → ${fmtDate(e)}`;
+    };
 
     document.getElementById('promo-tbody').innerHTML = list.map(p => `
       <tr>
@@ -165,63 +214,83 @@
             ${p.code}
           </code>
         </td>
+        <td style="color:var(--muted);font-size:12px">${p.event_type || '—'}</td>
         <td>${p.type === 'percent' ? 'Giảm %' : 'Giảm tiền'}</td>
         <td style="font-weight:600;color:var(--red)">
           ${p.type === 'percent'
             ? `${p.value}%`
-            : `${p.value.toLocaleString('vi')}đ`}
+            : `${Number(p.value).toLocaleString('vi')}đ`}
         </td>
         <td style="color:var(--muted)">
-          ${p.minOrder > 0 ? p.minOrder.toLocaleString('vi') + 'đ' : 'Không giới hạn'}
+          ${p.min_order > 0 ? Number(p.min_order).toLocaleString('vi') + 'đ' : 'Không giới hạn'}
         </td>
         <td>
-          <span class="badge ${p.active ? 'badge-green' : 'badge-muted'}">
-            ${p.active ? 'Đang hoạt động' : 'Tạm dừng'}
+          <span class="badge ${p.is_active ? 'badge-green' : 'badge-muted'}">
+            ${p.is_active ? 'Đang hoạt động' : 'Tạm dừng'}
           </span>
         </td>
-        <td style="color:var(--muted);font-size:12px">${p.createdAt}</td>
+        <td style="font-size:12px">${fmtTime(p.start_date, p.end_date)}</td>
         <td>
           <div style="display:flex;gap:4px">
-            <button class="btn btn-sm btn-ghost" onclick="editPromo('${p.id}')">Sửa</button>
-            <button class="btn btn-sm ${p.active ? 'btn-danger' : 'btn-gold'}"
-                    onclick="toggleActive('${p.id}')">
-              ${p.active ? 'Tạm dừng' : 'Kích hoạt'}
+            <button class="btn btn-sm btn-ghost"
+                    onclick="editPromo('${p.event_id}')">Sửa</button>
+            <button class="btn btn-sm ${p.is_active ? 'btn-danger' : 'btn-gold'}"
+                    onclick="toggleActive('${p.event_id}', ${p.is_active})">
+              ${p.is_active ? 'Tạm dừng' : 'Kích hoạt'}
             </button>
-            <button class="btn btn-sm btn-danger" onclick="deletePromo('${p.id}')">Xóa</button>
+            <button class="btn btn-sm btn-danger"
+                    onclick="deletePromo('${p.event_id}', '${p.name.replace(/'/g,"\\'")}')">Xóa</button>
           </div>
         </td>
       </tr>
     `).join('') || `
-      <tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">
+      <tr><td colspan="9" style="text-align:center;padding:30px;color:var(--muted)">
         Không có khuyến mãi nào
       </td></tr>`;
   };
 
-  // ── Modal ──
-  window.openModal = function() {
-    editingId = null;
-    document.getElementById('modal-title').textContent = 'Tạo khuyến mãi mới';
+  // ── Modal helpers ─────────────────────────────────────────
+  function resetForm() {
     document.getElementById('f-name').value  = '';
     document.getElementById('f-code').value  = '';
     document.getElementById('f-value').value = '';
     document.getElementById('f-min').value   = '';
+    document.getElementById('f-start').value = '';
+    document.getElementById('f-end').value   = '';
+    document.getElementById('f-desc').value  = '';
     document.getElementById('f-active').checked = true;
+    document.getElementById('f-event-type').value = 'general';
     document.querySelector('[name="f-type"][value="percent"]').checked = true;
     onTypeChange();
     document.getElementById('modal-error').style.display = 'none';
+  }
+
+  window.openModal = function() {
+    editingId = null;
+    document.getElementById('modal-title').textContent = 'Tạo khuyến mãi mới';
+    document.getElementById('f-code').disabled = false;
+    resetForm();
     document.getElementById('promo-modal').classList.add('open');
   };
 
   window.editPromo = function(id) {
-    const p = promotions.find(p => p.id === id);
+    const p = allPromos.find(p => p.event_id === id);
     if (!p) return;
     editingId = id;
     document.getElementById('modal-title').textContent = 'Sửa khuyến mãi';
+
     document.getElementById('f-name').value  = p.name;
     document.getElementById('f-code').value  = p.code;
+    document.getElementById('f-code').disabled = true; // code không cho sửa
     document.getElementById('f-value').value = p.value;
-    document.getElementById('f-min').value   = p.minOrder || '';
-    document.getElementById('f-active').checked = p.active;
+    document.getElementById('f-min').value   = p.min_order || '';
+    document.getElementById('f-desc').value  = p.description || '';
+    document.getElementById('f-active').checked = p.is_active;
+    document.getElementById('f-event-type').value = p.event_type || 'general';
+    document.getElementById('f-start').value =
+      p.start_date ? p.start_date.split('T')[0] : '';
+    document.getElementById('f-end').value =
+      p.end_date ? p.end_date.split('T')[0] : '';
     document.querySelector(`[name="f-type"][value="${p.type}"]`).checked = true;
     onTypeChange();
     document.getElementById('modal-error').style.display = 'none';
@@ -239,43 +308,64 @@
       type === 'percent' ? 'Giá trị giảm (%) *' : 'Số tiền giảm (đ) *';
   };
 
-  window.savePromo = function() {
-    const errEl = document.getElementById('modal-error');
+  // ── Save (tạo / sửa) ──────────────────────────────────────
+  window.savePromo = async function() {
+    const errEl  = document.getElementById('modal-error');
+    const saveBtn = document.getElementById('save-btn');
     errEl.style.display = 'none';
 
-    const name   = document.getElementById('f-name').value.trim();
-    const code   = document.getElementById('f-code').value.trim().toUpperCase();
-    const type   = document.querySelector('[name="f-type"]:checked')?.value;
-    const value  = parseFloat(document.getElementById('f-value').value);
-    const minOrder = parseInt(document.getElementById('f-min').value) || 0;
-    const active = document.getElementById('f-active').checked;
+    const name       = document.getElementById('f-name').value.trim();
+    const code       = document.getElementById('f-code').value.trim().toUpperCase();
+    const event_type = document.getElementById('f-event-type').value;
+    const type       = document.querySelector('[name="f-type"]:checked')?.value;
+    const value      = parseFloat(document.getElementById('f-value').value);
+    const min_order  = parseInt(document.getElementById('f-min').value) || 0;
+    const is_active  = document.getElementById('f-active').checked;
+    const description = document.getElementById('f-desc').value.trim() || null;
+    const start_date = document.getElementById('f-start').value || null;
+    const end_date   = document.getElementById('f-end').value || null;
 
     // Validate
-    if (!name)           return showError('Vui lòng nhập tên khuyến mãi.');
-    if (!code)           return showError('Vui lòng nhập mã khuyến mãi.');
-    if (!code.match(/^[A-Z0-9]+$/)) return showError('Mã chỉ gồm chữ hoa và số, không dấu cách.');
+    if (!name)  return showError('Vui lòng nhập tên khuyến mãi.');
+    if (!editingId && !code) return showError('Vui lòng nhập mã khuyến mãi.');
+    if (!editingId && !/^[A-Z0-9]+$/.test(code))
+      return showError('Mã chỉ gồm chữ hoa và số, không dấu cách.');
     if (!value || value <= 0) return showError('Giá trị giảm phải lớn hơn 0.');
-    if (type === 'percent' && value > 100) return showError('Giảm % không thể lớn hơn 100%.');
+    if (type === 'percent' && value > 100)
+      return showError('Giảm % không thể lớn hơn 100%.');
+    if (start_date && end_date && start_date > end_date)
+      return showError('Ngày kết thúc phải sau ngày bắt đầu.');
 
-    // Check trùng code
-    const dup = promotions.find(p => p.code === code && p.id !== editingId);
-    if (dup) return showError('Mã khuyến mãi này đã tồn tại.');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Đang lưu...';
 
-    if (editingId) {
-      const p = promotions.find(p => p.id === editingId);
-      if (p) { p.name = name; p.code = code; p.type = type; p.value = value; p.minOrder = minOrder; p.active = active; }
-    } else {
-      promotions.push({
-        id: 'promo-' + String(promotions.length + 1).padStart(3, '0'),
-        name, code, type, value, minOrder, active,
-        createdAt: new Date().toISOString().split('T')[0],
-      });
+    try {
+      if (editingId) {
+        // PATCH — không gửi code vì không cho sửa
+        const updated = await apiUpdatePromotion(editingId, {
+          name, type, value, min_order, is_active,
+          description, start_date, end_date,
+        });
+        const idx = allPromos.findIndex(p => p.event_id === editingId);
+        if (idx !== -1) allPromos[idx] = updated;
+        showToast('Đã cập nhật khuyến mãi!', 'success');
+      } else {
+        // POST
+        const created = await apiCreatePromotion({
+          name, code, event_type, type, value, min_order,
+          description, start_date, end_date,
+        });
+        allPromos.unshift(created);
+        showToast('Đã tạo khuyến mãi mới!', 'success');
+      }
+      closeModal();
+      renderList();
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Lưu';
     }
-
-    syncPromotions();
-    showToast(editingId ? 'Đã cập nhật khuyến mãi!' : 'Đã tạo khuyến mãi mới!', 'success');
-    closeModal();
-    renderList();
 
     function showError(msg) {
       errEl.textContent = msg;
@@ -283,38 +373,55 @@
     }
   };
 
-  window.toggleActive = function(id) {
-    const p = promotions.find(p => p.id === id);
-    if (!p) return;
-    p.active = !p.active;
-    syncPromotions();
-    renderList();
-    showToast(p.active ? 'Đã kích hoạt khuyến mãi' : 'Đã tạm dừng khuyến mãi', 'success');
+  // ── Toggle active ─────────────────────────────────────────
+  window.toggleActive = async function(id, currentActive) {
+    try {
+      const updated = await apiUpdatePromotion(id, { is_active: !currentActive });
+      const idx = allPromos.findIndex(p => p.event_id === id);
+      if (idx !== -1) allPromos[idx] = updated;
+      renderList();
+      showToast(!currentActive ? 'Đã kích hoạt khuyến mãi' : 'Đã tạm dừng khuyến mãi', 'success');
+    } catch (err) {
+      showToast('Lỗi: ' + err.message, 'error');
+    }
   };
 
-  window.deletePromo = function(id) {
-    const p = promotions.find(p => p.id === id);
-    if (!p) return;
+  // ── Delete ────────────────────────────────────────────────
+  window.deletePromo = function(id, name) {
     confirmDialog({
       title: 'Xóa khuyến mãi',
-      body: `Bạn có chắc muốn xóa khuyến mãi <strong>${p.name}</strong>?`,
+      body: `Bạn có chắc muốn xóa khuyến mãi <strong>${name}</strong>?<br>
+             <span style="font-size:12px;color:var(--muted)">
+               Nếu mã đã dùng trong đơn hàng, hệ thống sẽ tắt thay vì xóa.
+             </span>`,
       confirmLabel: 'Xóa', confirmClass: 'btn-danger',
-      onConfirm: () => {
-        const idx = promotions.findIndex(p => p.id === id);
-        if (idx !== -1) promotions.splice(idx, 1);
-        syncPromotions();
-        renderList();
-        showToast('Đã xóa khuyến mãi', 'success');
+      onConfirm: async () => {
+        try {
+          const result = await apiDeletePromotion(id);
+          // Backend có thể tắt thay vì xóa nếu đã dùng trong đơn
+          if (result?.message?.includes('tắt')) {
+            const idx = allPromos.findIndex(p => p.event_id === id);
+            if (idx !== -1) allPromos[idx].is_active = false;
+            showToast('Khuyến mãi đã dùng trong đơn hàng — đã tắt thay vì xóa', 'info');
+          } else {
+            allPromos = allPromos.filter(p => p.event_id !== id);
+            showToast('Đã xóa khuyến mãi', 'success');
+          }
+          renderList();
+        } catch (err) {
+          showToast('Lỗi: ' + err.message, 'error');
+        }
       },
     });
   };
 
-  // Close backdrop
+  // Close khi click backdrop
   document.getElementById('promo-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('promo-modal')) closeModal();
   });
 
-  renderList();
+  // Khởi động
+  loadPromos();
 </script>
 </body>
 </html>
