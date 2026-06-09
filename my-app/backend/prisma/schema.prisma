@@ -23,6 +23,10 @@ model Table {
   capacity     Int
   status       String   @default("Available") // "Available" | "Occupied"
   location     String?
+  reserved_at   DateTime?  
+  reserved_name String?    
+  reserved_phone String?  
+  reserved_guests Int?     
   orders       Order[]
 }
 
@@ -34,6 +38,7 @@ model Dish {
   is_available Boolean    @default(true)
   description String?
   order_items OrderItem[]
+  image_url    String?  
 }
 
 model Customer {
