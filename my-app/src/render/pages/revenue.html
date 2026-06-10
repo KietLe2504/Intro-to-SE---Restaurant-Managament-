@@ -86,9 +86,9 @@
         apiGetEmployees(),
       ]);
 
-      const paid      = allOrders.filter(o => o.status === 'paid');
-      const cancelled = allOrders.filter(o => o.status === 'cancelled');
-      const totalRev  = paid.reduce((s, o) => s + (o.total_amount || 0), 0);
+      const paid      = allOrders.filter(o => o.status === 'Completed');  // ← đổi 'paid'
+      const cancelled = allOrders.filter(o => o.status === 'Cancelled');  // ← đổi 'cancelled'
+      const totalRev  = paid.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
       const avgOrder  = paid.length ? Math.round(totalRev / paid.length) : 0;
 
       renderSummary({ paid, cancelled, allOrders, totalRev, avgOrder });
@@ -128,8 +128,8 @@
     const itemCount = {};
     paid.forEach(o => {
       (o.order_items || o.items || []).forEach(i => {
-        const name = i.dish?.name || i.name || `Món #${i.dish_id}`;
-        const qty  = i.quantity || i.qty || 1;
+        const name = i.dish?.dish_name || `Món #${i.dish_id}`;
+        const qty  = i.quantity || 1;
         itemCount[name] = (itemCount[name] || 0) + qty;
       });
     });
@@ -163,7 +163,7 @@
       total:   allOrders.filter(o => o.employee_id === e.employee_id).length,
       revenue: paid
         .filter(o => o.employee_id === e.employee_id)
-        .reduce((s, o) => s + (o.total_amount || 0), 0),
+        .reduce((s, o) => s + parseFloat(o.total_amount || 0), 0),
     })).sort((a, b) => b.revenue - a.revenue);
 
     document.getElementById('staff-perf').innerHTML = staffStats.length
