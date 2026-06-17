@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Thực đơn — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+  <style>
+    .page-content {
+      position: relative;
+    }
+    .page-content::before {
+      content: '';
+      position: fixed;
+      top: var(--header-h);
+      left: var(--sidebar-w);
+      right: 0;
+      bottom: 0;
+      background: url('../images/bgmenu.webp') center/cover no-repeat;
+      opacity: 0.5;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .page-content > * {
+      position: relative;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <div class="page-toolbar">
+        <input class="search-input" placeholder="🔍 Tìm món ăn..."
+               id="menu-search" oninput="renderMenu()"/>
+        <div class="filter-group">
+          <div class="filter-chip active" data-cat="all"       onclick="setCat('all')">Tất cả</div>
+          <div class="filter-chip"        data-cat="Khai vi"   onclick="setCat('Khai vi')">Khai vị</div>
+          <div class="filter-chip"        data-cat="Mon chinh" onclick="setCat('Mon chinh')">Món chính</div>
+          <div class="filter-chip"        data-cat="Trang mieng" onclick="setCat('Trang mieng')">Tráng miệng</div>
+          <div class="filter-chip"        data-cat="Do uong"   onclick="setCat('Do uong')">Đồ uống</div>
+        </div>
+        <button id="btn-add" class="btn btn-primary" style="display:none"
+                onclick="window.openModal()">+ Thêm món</button>
+      </div>
+
+      <div class="menu-grid" id="menu-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal thêm / sửa món -->
+<div class="modal-backdrop" id="menu-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Thêm món mới</div>
+      <button class="modal-close" onclick="window.closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Tên món *</label>
+        <input class="form-input" id="f-name" placeholder="VD: Bò lúc lắc"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Danh mục *</label>
+        <select class="form-select" id="f-cat">
+          <option value="Khai vi">Khai vị</option>
+          <option value="Mon chinh">Món chính</option>
+          <option value="Trang mieng">Tráng miệng</option>
+          <option value="Do uong">Đồ uống</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Giá (đ) *</label>
+        <input class="form-input" id="f-price" type="number" min="0" placeholder="85000"/>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="f-available" checked style="accent-color:var(--red)"/>
+          Còn món (có thể gọi)
+        </label>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ảnh món</label>
+        <input type="file" id="f-image" accept="image/*"
+               style="font-size:13px;color:var(--text2)"/>
+        <div id="f-image-preview" style="margin-top:8px;display:none">
+          <img id="f-image-img" style="width:100%;max-height:160px;object-fit:cover;
+                                        border-radius:var(--radius);border:1px solid var(--border)"/>
+        </div>
+      </div>
+      <div id="modal-error"
+           style="color:var(--red);font-size:13px;padding:10px;background:var(--red-bg);
+                  border-radius:var(--radius);display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="window.closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="window.saveItem()">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import {
+    apiGetDishes, apiCreateDish, apiUpdateDish,
+    apiDeleteDish, apiUploadDishImage,
+  } from '../js/api.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+
+  const isManager = session.role === 'Manager';
+
+  renderSidebar('menu');
+  renderHeader({ title: 'Thực đơn', sub: 'Đang tải...', showBack: true, backUrl: 'dashboard.html' });
+
+  if (isManager) document.getElementById('btn-add').style.display = '';
+
+  let dishes     = [];
+  let currentCat = 'all';
+  let editingId  = null;
+
+  const CAT_LABEL = {
+    'Mon chinh':   'Món chính',
+    'Khai vi':     'Khai vị',
+    'Trang mieng': 'Tráng miệng',
+    'Do uong':     'Đồ uống',
+  };
+
+  // ── Load ──
+  async function loadDishes() {
+    try {
+      dishes = await apiGetDishes();
+      renderHeader({
+        title: 'Thực đơn', sub: `${dishes.length} món`,
+        showBack: true, backUrl: 'dashboard.html',
+      });
+      renderMenu();
+    } catch (err) {
+      showToast('Lỗi tải dữ liệu: ' + err.message, 'error');
+    }
+  }
+
+  // ── Preview ảnh ──
+  document.getElementById('f-image').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      document.getElementById('f-image-img').src = e.target.result;
+      document.getElementById('f-image-preview').style.display = '';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // ── Filter ──
+  window.setCat = function(cat) {
+    currentCat = cat;
+    document.querySelectorAll('[data-cat]').forEach(c =>
+      c.classList.toggle('active', c.dataset.cat === cat));
+    renderMenu();
+  };
+
+  // ── Render ──
+  window.renderMenu = function() {
+    const q = document.getElementById('menu-search').value.toLowerCase();
+    const items = dishes.filter(m =>
+      (currentCat === 'all' || m.category === currentCat) &&
+      m.dish_name.toLowerCase().includes(q) &&
+      m.is_available !== false
+    );
+
+    document.getElementById('menu-grid').innerHTML = items.map(m => `
+      <div class="menu-card">
+        ${m.image_url
+          ? `<img src="http://localhost:3000${m.image_url}"
+                  style="width:100%;height:140px;object-fit:cover;
+                         border-radius:var(--radius) var(--radius) 0 0"/>`
+          : `<div style="width:100%;height:140px;background:var(--surface2);
+                         border-radius:var(--radius) var(--radius) 0 0;
+                         display:flex;align-items:center;justify-content:center;
+                         font-size:40px">🍽️</div>`}
+        <div class="menu-card-body">
+          <div class="menu-card-name">${m.dish_name}</div>
+          <div class="menu-card-cat">${CAT_LABEL[m.category] || m.category}</div>
+          <div class="menu-card-footer">
+            <div class="menu-card-price">${parseFloat(m.price).toLocaleString('vi')}đ</div>
+            <span class="badge ${m.is_available ? 'badge-green' : 'badge-red'}">
+              ${m.is_available ? 'Còn' : 'Hết'}
+            </span>
+          </div>
+          ${isManager ? `
+            <div style="display:flex;gap:6px;margin-top:10px">
+              <button class="btn btn-sm btn-ghost" style="flex:1"
+                      onclick="event.stopPropagation();window.editItem('${m.dish_id}')">
+                Sửa
+              </button>
+              <button class="btn btn-sm btn-danger"
+                      onclick="event.stopPropagation();window.deleteItem('${m.dish_id}')">
+                Xóa
+              </button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `).join('') || `
+      <div style="color:var(--muted);text-align:center;padding:40px;grid-column:1/-1">
+        Không tìm thấy món nào
+      </div>`;
+  };
+
+  // ── Modal ──
+  window.openModal = function() {
+    editingId = null;
+    document.getElementById('modal-title').textContent     = 'Thêm món mới';
+    document.getElementById('f-name').value                = '';
+    document.getElementById('f-cat').value                 = 'Mon chinh';
+    document.getElementById('f-price').value               = '';
+    document.getElementById('f-available').checked         = true;
+    document.getElementById('f-image').value               = '';
+    document.getElementById('f-image-preview').style.display = 'none';
+    document.getElementById('modal-error').style.display   = 'none';
+    document.getElementById('menu-modal').classList.add('open');
+  };
+
+  window.editItem = function(id) {
+    const m = dishes.find(d => d.dish_id === id);
+    if (!m) return;
+    editingId = id;
+    document.getElementById('modal-title').textContent     = 'Sửa món';
+    document.getElementById('f-name').value                = m.dish_name;
+    document.getElementById('f-cat').value                 = m.category;
+    document.getElementById('f-price').value               = m.price;
+    document.getElementById('f-available').checked         = m.is_available;
+    document.getElementById('f-image').value               = '';
+    // Hiện ảnh hiện tại nếu có
+    if (m.image_url) {
+      document.getElementById('f-image-img').src = `http://localhost:3000${m.image_url}`;
+      document.getElementById('f-image-preview').style.display = '';
+    } else {
+      document.getElementById('f-image-preview').style.display = 'none';
+    }
+    document.getElementById('modal-error').style.display   = 'none';
+    document.getElementById('menu-modal').classList.add('open');
+  };
+
+  window.closeModal = function() {
+    document.getElementById('menu-modal').classList.remove('open');
+    editingId = null;
+  };
+
+  window.saveItem = async function() {
+    const errEl = document.getElementById('modal-error');
+    errEl.style.display = 'none';
+
+    const name         = document.getElementById('f-name').value.trim();
+    const category     = document.getElementById('f-cat').value;
+    const price        = parseInt(document.getElementById('f-price').value);
+    const is_available = document.getElementById('f-available').checked;
+    const imageFile    = document.getElementById('f-image').files[0];
+
+    if (!name)                { errEl.textContent = 'Vui lòng nhập tên món.';    errEl.style.display = 'block'; return; }
+    if (!price || price <= 0) { errEl.textContent = 'Vui lòng nhập giá hợp lệ.'; errEl.style.display = 'block'; return; }
+
+    try {
+      let dish;
+      if (editingId) {
+        dish = await apiUpdateDish(editingId, { dish_name: name, category, price, is_available });
+        const idx = dishes.findIndex(d => d.dish_id === editingId);
+        if (idx >= 0) dishes[idx] = dish;
+        showToast('Đã cập nhật món!', 'success');
+      } else {
+        dish = await apiCreateDish({ dish_name: name, category, price, is_available });
+        dishes.push(dish);
+        showToast('Đã thêm món mới!', 'success');
+      }
+
+      // Upload ảnh nếu có chọn file mới
+      if (imageFile) {
+        const updated = await apiUploadDishImage(dish.dish_id, imageFile);
+        const idx = dishes.findIndex(d => d.dish_id === dish.dish_id);
+        if (idx >= 0) dishes[idx] = updated;
+      }
+
+      closeModal();
+      renderMenu();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    }
+  };
+
+  window.deleteItem = function(id) {
+    const m = dishes.find(d => d.dish_id === id);
+    if (!m) return;
+    confirmDialog({
+      title: 'Xóa món',
+      body: `Bạn có chắc muốn xóa <strong>${m.dish_name}</strong>?`,
+      confirmLabel: 'Xóa', confirmClass: 'btn-danger',
+      onConfirm: async () => {
+        try {
+          await apiDeleteDish(id);
+          dishes = dishes.filter(d => d.dish_id !== id);
+          showToast('Đã xóa món', 'success');
+          renderMenu();
+        } catch (err) {
+          showToast('Lỗi: ' + err.message, 'error');
+        }
+      },
+    });
+  };
+
+  document.getElementById('menu-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('menu-modal')) closeModal();
+  });
+
+  loadDishes();
+</script>
+</body>
+</html>

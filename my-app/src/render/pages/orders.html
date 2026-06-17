@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Đơn hàng — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+  <style>
+    .order-type-tabs {
+      display: flex;
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .order-type-tab {
+      flex: 1; padding: 11px;
+      text-align: center; cursor: pointer;
+      font-size: 14px; font-weight: 500;
+      color: var(--muted); background: var(--surface);
+      transition: all 0.15s; display: flex;
+      align-items: center; justify-content: center; gap: 8px;
+    }
+    .order-type-tab:first-child { border-right: 2px solid var(--border); }
+    .order-type-tab.active.dine { background: var(--red-bg);  color: var(--red); }
+    .order-type-tab.active.take { background: var(--gold-bg); color: var(--gold-deep); }
+    .order-type-tab:not(.active):hover { background: var(--surface2); }
+
+    .detail-header {
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 16px;
+      margin-bottom: 24px; flex-wrap: wrap;
+    }
+    .detail-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .item-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.12s;
+    }
+    .item-row:last-child { border-bottom: none; }
+    .item-row:hover { background: var(--surface2); }
+    .item-row.served { opacity: 0.65; }
+    .item-check {
+      width: 20px; height: 20px; border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: all 0.15s; cursor: pointer;
+      font-size: 11px; color: transparent;
+    }
+    .item-check.checked { background: var(--green); border-color: var(--green); color: #fff; }
+    .item-name  { flex: 1; font-size: 13.5px; font-weight: 500; }
+    .item-qty   { font-size: 13px; color: var(--muted); min-width: 60px; text-align: center; }
+    .item-price { font-size: 13px; font-weight: 600; min-width: 80px; text-align: right; }
+    .serve-qty-input {
+      width: 44px; text-align: center; padding: 4px;
+      border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; background: var(--bg); color: var(--text);
+    }
+    .payment-box {
+      background: var(--gold-bg);
+      border: 1px solid rgba(212,160,23,0.3);
+      border-radius: var(--radius-lg);
+      padding: 20px; margin-top: 16px;
+    }
+
+    /* Filter dropdown */
+    .filter-option {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; border-radius: 6px;
+      cursor: pointer; font-size: 13px; color: var(--text2);
+      transition: background 0.12s;
+    }
+    .filter-option:hover { background: var(--surface2); }
+    .filter-option input[type="checkbox"] {
+      accent-color: var(--red);
+      width: 14px; height: 14px; cursor: pointer;
+    }
+    .filter-section-label {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 6px 8px 4px;
+    }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <!-- ══ VIEW: DANH SÁCH ĐƠN ══ -->
+      <div id="view-list">
+        <div class="orders-header">
+          <div style="font-size:13px;color:var(--muted)" id="order-count"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+
+            <!-- Dropdown filter -->
+            <div style="position:relative" id="filter-wrap">
+              <button class="btn btn-ghost" id="filter-btn" onclick="toggleFilterPanel()"
+                      style="display:flex;align-items:center;gap:6px">
+                ⚙ Bộ lọc
+                <span id="filter-badge"
+                      style="display:none;background:var(--red);color:#fff;
+                             font-size:10px;font-weight:700;padding:1px 6px;
+                             border-radius:20px;margin-left:2px">0</span>
+              </button>
+
+              <div id="filter-panel"
+                   style="display:none;position:absolute;top:calc(100% + 8px);left:0;
+                          width:230px;background:var(--surface);border:1px solid var(--border);
+                          border-radius:var(--radius);box-shadow:var(--shadow-lg);
+                          z-index:200;padding:8px">
+
+                <div class="filter-section-label">Trạng thái</div>
+                <label class="filter-option">
+                  <input type="checkbox" value="Pending,Serving" onchange="applyFilter()"/>
+                  Chưa thanh toán
+                </label>
+                <label class="filter-option">
+                  <input type="checkbox" value="Completed" onchange="applyFilter()"/>
+                  Đã thanh toán
+                </label>
+                <label class="filter-option">
+                  <input type="checkbox" value="Cancelled" onchange="applyFilter()"/>
+                  Đã hủy
+                </label>
+
+                <div style="height:1px;background:var(--border);margin:6px 0"></div>
+
+                <div class="filter-section-label">Loại đơn</div>
+                <label class="filter-option">
+                  <input type="checkbox" value="dine-in" onchange="applyFilter()"/>
+                  🍽 Tại bàn
+                </label>
+                <label class="filter-option">
+                  <input type="checkbox" value="take-away" onchange="applyFilter()"/>
+                  🥡 Mang về
+                </label>
+
+                <div style="height:1px;background:var(--border);margin:6px 0"></div>
+
+                <div class="filter-section-label">Hiển thị</div>
+                <label class="filter-option">
+                  <input type="checkbox" value="mine" onchange="applyFilter()"/>
+                  Chỉ đơn của tôi
+                </label>
+
+                <div style="height:1px;background:var(--border);margin:6px 0"></div>
+                <button class="btn btn-ghost btn-full" style="font-size:12px"
+                        onclick="clearFilter()">Xóa bộ lọc</button>
+              </div>
+            </div>
+
+            <select class="form-select" id="table-filter" style="width:130px"
+                    onchange="applyFilter()">
+              <option value="">Tất cả bàn</option>
+            </select>
+            <button class="btn btn-primary" onclick="showCreate()">+ Tạo đơn mới</button>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0;overflow:hidden">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Mã đơn</th>
+                <th>Loại</th>
+                <th>Khách / Bàn</th>
+                <th>Nhân viên</th>
+                <th>Số món</th>
+                <th>Tổng tiền</th>
+                <th>Trạng thái</th>
+                <th>Thời gian</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="order-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ══ VIEW: TẠO ĐƠN MỚI ══ -->
+      <div id="view-create" style="display:none">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+          <button class="btn btn-ghost" onclick="showList()">← Quay lại</button>
+          <div style="font-family:var(--font-display);font-size:18px;font-weight:700">Tạo đơn mới</div>
+        </div>
+
+        <div class="order-layout">
+          <div class="order-menu-panel">
+            <div class="page-toolbar" style="margin-bottom:12px">
+              <input class="search-input" placeholder="🔍 Tìm món..."
+                     id="menu-search" oninput="renderMenuPanel()"/>
+              <div class="filter-group">
+                <div class="filter-chip active" data-cat="all"     onclick="setCat('all')">Tất cả</div>
+                <div class="filter-chip"        data-cat="starter" onclick="setCat('starter')">Khai vị</div>
+                <div class="filter-chip"        data-cat="main"    onclick="setCat('main')">Món chính</div>
+                <div class="filter-chip"        data-cat="dessert" onclick="setCat('dessert')">Tráng miệng</div>
+                <div class="filter-chip"        data-cat="drink"   onclick="setCat('drink')">Đồ uống</div>
+              </div>
+            </div>
+            <div id="menu-panel"></div>
+          </div>
+
+          <div class="bill-panel">
+            <div class="card" style="padding:16px;display:flex;flex-direction:column;height:100%;overflow:hidden">
+              <div class="card-title" style="margin-bottom:12px">
+                Hoá đơn <span class="card-title-sub" id="bill-label"></span>
+              </div>
+              <div style="flex:1;overflow-y:auto;padding-right:2px;margin:0 -4px;padding:0 4px 8px;">
+                <div class="order-type-tabs">
+                  <div class="order-type-tab active dine" data-type="dine-in"
+                       onclick="setType('dine-in')">🍽 Tại bàn</div>
+                  <div class="order-type-tab take" data-type="take-away"
+                       onclick="setType('take-away')">🥡 Mang về</div>
+                </div>
+                <div id="dine-fields">
+                  <div class="form-group">
+                    <label class="form-label">Chọn bàn *</label>
+                    <select class="form-select" id="sel-table" onchange="onTableSel()">
+                      <option value="">-- Chọn bàn --</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Số khách *</label>
+                    <input class="form-input" type="number" id="sel-guests" min="1" placeholder="Số khách"/>
+                  </div>
+                </div>
+                <div id="take-fields" style="display:none">
+                  <div class="form-group">
+                    <label class="form-label">Tên khách *</label>
+                    <input class="form-input" type="text" id="take-name" placeholder="Nguyễn Văn A"/>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Số điện thoại</label>
+                    <input class="form-input" type="tel" id="take-phone" placeholder="0901 234 567"/>
+                  </div>
+                </div>
+                <div style="margin-bottom:14px">
+                  <div style="font-size:11px;font-weight:600;color:var(--text2);
+                              text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Khuyến mãi</div>
+                  <select class="form-select" id="promo-select" onchange="applyPromoFromSelect()"
+                          style="margin-bottom:6px">
+                    <option value="">-- Chọn khuyến mãi --</option>
+                  </select>
+                  <div style="display:flex;gap:6px">
+                    <input class="form-input" id="promo-code-input" placeholder="Nhập mã giảm giá..."
+                           style="flex:1" oninput="this.value=this.value.toUpperCase()"/>
+                    <button class="btn btn-ghost" style="flex-shrink:0" onclick="applyPromoCode()">Áp dụng</button>
+                  </div>
+                  <div id="promo-result" style="margin-top:8px;font-size:12px;display:none"></div>
+                </div>
+                <div style="margin-bottom:14px">
+                  <div style="font-size:11px;font-weight:600;color:var(--text2);
+                              text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Thành viên</div>
+                  <div style="display:flex;gap:6px">
+                    <input class="form-input" id="member-phone-input" type="tel"
+                           placeholder="Nhập SĐT thành viên..." style="flex:1"/>
+                    <button class="btn btn-ghost" style="flex-shrink:0" onclick="lookupMember()">Tra cứu</button>
+                  </div>
+                  <div id="member-result" style="margin-top:8px;display:none"></div>
+                </div>
+                <div class="bill-scroll" id="bill-items">
+                  <div class="bill-empty-msg">Chọn món để thêm vào đơn</div>
+                </div>
+              </div>
+              <div class="bill-subtotal">
+                <span>Số món: <strong id="bill-count">0</strong></span>
+              </div>
+              <div id="redeem-row" style="display:none;justify-content:space-between;
+                            font-size:13px;color:var(--blue);padding:6px 0;border-top:1px solid var(--border)">
+                <span id="redeem-label">Dùng điểm</span>
+                <span id="redeem-amount" style="font-weight:600">-0đ</span>
+              </div>
+              <div id="discount-row" style="display:none;justify-content:space-between;
+                            font-size:13px;color:var(--green);padding:6px 0;border-top:1px solid var(--border)">
+                <span id="discount-label">Giảm giá</span>
+                <span id="discount-amount" style="font-weight:600">-0đ</span>
+              </div>
+              <div class="bill-total">
+                <span>Tổng cộng</span>
+                <span class="bill-total-num" id="bill-total">0đ</span>
+              </div>
+              <button class="btn btn-primary btn-full" onclick="submitCreate()">Xác nhận tạo đơn →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ VIEW: CHI TIẾT ĐƠN ══ -->
+      <div id="view-detail" style="display:none">
+        <div class="detail-header">
+          <div>
+            <button class="btn btn-ghost" onclick="showList()" style="margin-bottom:10px">← Quay lại</button>
+            <div style="font-family:var(--font-display);font-size:22px;font-weight:800" id="detail-id"></div>
+            <div class="detail-meta" id="detail-meta"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start" id="detail-actions"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 300px;gap:16px">
+          <div class="card" style="padding:0;overflow:hidden">
+            <div style="padding:14px 20px;border-bottom:1px solid var(--border);
+                        display:flex;align-items:center;justify-content:space-between">
+              <div style="font-family:var(--font-display);font-size:14px;font-weight:700">Danh sách món</div>
+              <div id="serve-progress" style="font-size:12px;color:var(--muted)"></div>
+            </div>
+            <div id="detail-items"></div>
+            <div id="serve-bar" style="padding:14px 20px;border-top:1px solid var(--border);
+                                       display:none;gap:10px;align-items:center">
+              <span style="font-size:13px;color:var(--text2);flex:1" id="serve-bar-label"></span>
+              <button class="btn btn-sm btn-ghost" onclick="clearServeSelect()">Bỏ chọn</button>
+              <button class="btn btn-sm"
+                      style="background:var(--green-bg);color:var(--green);border:1px solid rgba(46,125,50,0.3)"
+                      onclick="confirmServe()">✓ Xác nhận đã phục vụ</button>
+            </div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:14px">
+              <div class="card-title">Tóm tắt</div>
+              <div id="detail-summary"></div>
+            </div>
+            <div class="payment-box" id="payment-box" style="display:none">
+              <div style="font-family:var(--font-display);font-size:15px;
+                          font-weight:700;color:var(--gold-deep);margin-bottom:12px">💳 Thanh toán</div>
+              <div style="font-size:13px;color:var(--text2);margin-bottom:12px" id="payment-info"></div>
+              <button class="btn btn-gold btn-full" onclick="processPayment()">Xác nhận thanh toán</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import {
+    apiGetTables, apiGetOrders, apiGetOrder, apiCreateOrder,
+    apiUpdateOrderStatus, apiUpdateTable, apiServeItem, apiGetDishes,
+    apiGetPromotions, apiGetPromotionByCode,
+    apiGetCustomerByPhone, apiCreateCustomer,
+  } from '../js/api.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+  renderSidebar('orders');
+  renderHeader({ title: 'Đơn hàng', sub: 'Quản lý đơn', showBack: true, backUrl: 'dashboard.html' });
+
+  // ── State ──
+  let activeStatuses = [];
+  let activeTypes    = [];
+  let onlyMine       = false;
+  let catFilter      = 'all';
+  let bill           = {};
+  let orderType      = 'dine-in';
+  let currentOrderId = null;
+  let appliedPromo   = null;
+  let appliedMember  = null;
+  let redeemPoints   = 0;
+  let serveSelected  = {};
+
+  let orders = [], tables = [], dishes = [], promos = [];
+
+  const STATUS_BADGE = {
+    Pending: 'badge-orange', Serving: 'badge-orange',
+    Completed: 'badge-green', Cancelled: 'badge-muted',
+  };
+  const STATUS_LABEL = {
+    Pending: 'Chưa phục vụ', Serving: 'Đang phục vụ',
+    Completed: 'Đã thanh toán', Cancelled: 'Đã hủy',
+  };
+  const CAT_LABEL = {
+    'Mon chinh': 'Món chính', 'Khai vi': 'Khai vị',
+    'Trang mieng': 'Tráng miệng', 'Do uong': 'Đồ uống',
+  };
+
+  async function init() {
+    [orders, tables, dishes, promos] = await Promise.all([
+      apiGetOrders(), apiGetTables(), apiGetDishes(), apiGetPromotions(),
+    ]);
+    const tf = document.getElementById('table-filter');
+    tables.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.table_id;
+      o.textContent = `Bàn ${t.table_number}`;
+      tf.appendChild(o);
+    });
+    renderList();
+    if (new URLSearchParams(window.location.search).get('new') === '1') showCreate();
+  }
+
+  // ── Filter dropdown ──
+  window.toggleFilterPanel = function() {
+    const panel = document.getElementById('filter-panel');
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  };
+
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById('filter-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      document.getElementById('filter-panel').style.display = 'none';
+    }
+  });
+
+  window.applyFilter = function() {
+    activeStatuses = [];
+    activeTypes    = [];
+    onlyMine       = false;
+
+    document.querySelectorAll('#filter-panel input[type="checkbox"]').forEach(cb => {
+      if (!cb.checked) return;
+      const val = cb.value;
+      if (val === 'mine') {
+        onlyMine = true;
+      } else if (['dine-in','take-away'].includes(val)) {
+        activeTypes.push(val);
+      } else {
+        val.split(',').forEach(s => activeStatuses.push(s));
+      }
+    });
+
+    const count = document.querySelectorAll('#filter-panel input:checked').length;
+    const badge = document.getElementById('filter-badge');
+    badge.textContent = count;
+    badge.style.display = count > 0 ? '' : 'none';
+
+    renderList();
+  };
+
+  window.clearFilter = function() {
+    document.querySelectorAll('#filter-panel input[type="checkbox"]')
+      .forEach(cb => cb.checked = false);
+    applyFilter();
+  };
+
+  window.renderList = function() {
+    const tblFilter = document.getElementById('table-filter').value;
+
+    let list = orders.filter(o => {
+      if (onlyMine && o.employee_id !== session.employee_id) return false;
+      if (activeStatuses.length && !activeStatuses.includes(o.status)) return false;
+      if (activeTypes.length    && !activeTypes.includes(o.order_type)) return false;
+      if (tblFilter             && o.table_id !== tblFilter)            return false;
+      return true;
+    }).sort((a, b) => new Date(b.order_time) - new Date(a.order_time));
+
+    document.getElementById('order-count').textContent = `${list.length} đơn`;
+
+    const tbody = document.getElementById('order-tbody');
+    tbody.innerHTML = list.map(o => {
+      const tbl       = tables.find(t => t.table_id === o.table_id);
+      const total     = parseFloat(o.total_amount) || 0;
+      const time      = new Date(o.order_time).toLocaleString('vi', {
+        hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit',
+      });
+      const isDine    = o.order_type === 'dine-in';
+      const items     = o.order_items || [];
+      const served    = items.filter(i => i.is_served).length;
+      const isPending = ['Pending','Serving'].includes(o.status);
+
+      const guestInfo = isDine
+        ? `Bàn ${tbl?.table_number || '?'}`
+        : `${o.customer_name || 'Khách lẻ'}${o.customer_phone ? ` · ${o.customer_phone}` : ''}`;
+
+      const typeBadge = isDine
+        ? `<span class="badge badge-red" style="font-size:10px">🍽 Tại bàn</span>`
+        : `<span class="badge badge-gold" style="font-size:10px">🥡 Mang về</span>`;
+
+      const serveLabel = isPending
+        ? `<span style="font-size:11px;color:${served===items.length?'var(--green)':'var(--orange)'}">
+             ${served}/${items.length} phục vụ</span>`
+        : '';
+
+      return `
+        <tr style="cursor:pointer" onclick="showDetail('${o.order_id}')">
+          <td style="font-family:var(--font-display);font-weight:700;color:var(--red)">
+            #${o.order_id.slice(0,8)}</td>
+          <td>${typeBadge}</td>
+          <td>${guestInfo}</td>
+          <td style="color:var(--muted)">${o.employee?.name || '?'}</td>
+          <td>${items.length} món ${serveLabel}</td>
+          <td style="font-weight:600">${total.toLocaleString('vi')}đ</td>
+          <td><span class="badge ${STATUS_BADGE[o.status]}">${STATUS_LABEL[o.status]}</span></td>
+          <td style="color:var(--muted);font-size:12px">${time}</td>
+          <td onclick="event.stopPropagation()">
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-sm btn-ghost"
+                      onclick="event.stopPropagation();showDetail('${o.order_id}')">Chi tiết</button>
+              ${isPending ? `
+                <button class="btn btn-sm btn-danger"
+                        onclick="event.stopPropagation();cancelOrder('${o.order_id}')">Hủy</button>
+              ` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    if (!list.length) {
+      tbody.innerHTML = `<tr><td colspan="9"
+        style="text-align:center;padding:30px;color:var(--muted)">Không có đơn nào</td></tr>`;
+    }
+  };
+
+  // ══ CREATE VIEW ══
+  window.showCreate = async function() {
+    bill = {}; orderType = 'dine-in';
+    appliedPromo = null; appliedMember = null; redeemPoints = 0;
+    [tables, dishes, promos] = await Promise.all([apiGetTables(), apiGetDishes(), apiGetPromotions()]);
+    show('view-create');
+    setType('dine-in');
+    document.getElementById('take-name').value  = '';
+    document.getElementById('take-phone').value = '';
+    document.getElementById('member-phone-input').value = '';
+    document.getElementById('member-result').style.display = 'none';
+    document.getElementById('bill-label').textContent = '';
+    document.getElementById('promo-code-input').value = '';
+    document.getElementById('promo-select').value = '';
+    document.getElementById('promo-result').style.display = 'none';
+    document.getElementById('discount-row').style.display = 'none';
+    document.getElementById('redeem-row').style.display = 'none';
+
+    const sel = document.getElementById('sel-table');
+    sel.innerHTML = '<option value="">-- Chọn bàn --</option>';
+    tables.filter(t => t.status === 'Available').forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.table_id;
+      o.textContent = `Bàn ${t.table_number} (${t.capacity} chỗ)`;
+      sel.appendChild(o);
+    });
+    const pre = sessionStorage.getItem('new_order_table');
+    if (pre) { sel.value = pre; sessionStorage.removeItem('new_order_table'); }
+    populatePromoSelect();
+    renderMenuPanel();
+    renderBill();
+  };
+
+  window.setType = function(type) {
+    orderType = type;
+    document.querySelectorAll('.order-type-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.type === type));
+    document.getElementById('dine-fields').style.display  = type === 'dine-in'   ? '' : 'none';
+    document.getElementById('take-fields').style.display  = type === 'take-away' ? '' : 'none';
+  };
+
+  window.onTableSel = function() {
+    const tid = document.getElementById('sel-table').value;
+    const tbl = tables.find(t => t.table_id === tid);
+    document.getElementById('bill-label').textContent = tbl ? `Bàn ${tbl.table_number}` : '';
+  };
+
+  window.setCat = function(cat) {
+    catFilter = cat;
+    document.querySelectorAll('[data-cat]').forEach(c =>
+      c.classList.toggle('active', c.dataset.cat === cat));
+    renderMenuPanel();
+  };
+
+  window.renderMenuPanel = function() {
+    const q = document.getElementById('menu-search').value.toLowerCase();
+    const filtered = dishes.filter(d =>
+      (catFilter === 'all' || d.category === catFilter) &&
+      d.dish_name.toLowerCase().includes(q)
+    );
+    const groups = {};
+    filtered.forEach(d => {
+      if (!groups[d.category]) groups[d.category] = [];
+      groups[d.category].push(d);
+    });
+    let html = '';
+    Object.entries(groups).forEach(([cat, items]) => {
+      html += `<div class="menu-section-title">${CAT_LABEL[cat] || cat}</div>`;
+      html += items.map(m => `
+        <div class="menu-item-card ${!m.is_available ? 'unavailable' : ''}"
+             onclick="${m.is_available ? `addItem('${m.dish_id}')` : ''}">
+          <div class="menu-item-name">
+            ${m.dish_name}
+            ${!m.is_available ? '<span class="badge badge-muted" style="font-size:10px;margin-left:6px">Hết</span>' : ''}
+          </div>
+          <div class="menu-item-price">${parseFloat(m.price).toLocaleString('vi')}đ</div>
+        </div>
+      `).join('');
+    });
+    document.getElementById('menu-panel').innerHTML =
+      html || '<div style="color:var(--muted);text-align:center;padding:20px">Không tìm thấy món</div>';
+  };
+
+  window.addItem = function(dishId) {
+    const m = dishes.find(d => d.dish_id === dishId);
+    if (!m || !m.is_available) return;
+    if (bill[dishId]) bill[dishId].qty++;
+    else bill[dishId] = { name: m.dish_name, price: parseFloat(m.price), qty: 1 };
+    renderBill();
+  };
+
+  window.changeQty = function(dishId, delta) {
+    if (!bill[dishId]) return;
+    bill[dishId].qty += delta;
+    if (bill[dishId].qty <= 0) delete bill[dishId];
+    renderBill();
+  };
+
+  function renderBill() {
+    const keys = Object.keys(bill);
+    const el   = document.getElementById('bill-items');
+    if (!keys.length) {
+      el.innerHTML = '<div class="bill-empty-msg">Chọn món để thêm vào đơn</div>';
+      document.getElementById('bill-total').textContent = '0đ';
+      document.getElementById('bill-count').textContent = '0';
+      return;
+    }
+    let count = 0;
+    el.innerHTML = keys.map(id => {
+      const item = bill[id];
+      count += item.qty;
+      return `
+        <div class="bill-item">
+          <div class="bill-item-name">${item.name}</div>
+          <button class="qty-btn" onclick="changeQty('${id}',-1)">−</button>
+          <span class="bill-item-qty">${item.qty}</span>
+          <button class="qty-btn" onclick="changeQty('${id}',1)">+</button>
+          <div class="bill-item-price">${(item.price * item.qty).toLocaleString('vi')}đ</div>
+        </div>
+      `;
+    }).join('');
+    document.getElementById('bill-count').textContent = count;
+    updateTotalDisplay();
+  }
+
+  function updateTotalDisplay() {
+    const raw      = Object.values(bill).reduce((s, i) => s + i.price * i.qty, 0);
+    const discount = appliedPromo ? calcDiscountLocal(appliedPromo, raw) : 0;
+    const final    = Math.max(0, raw - discount - redeemPoints);
+    const discountRow = document.getElementById('discount-row');
+    if (discountRow) {
+      discountRow.style.display = discount > 0 ? 'flex' : 'none';
+      if (discount > 0) {
+        document.getElementById('discount-label').textContent  = `KM (${appliedPromo.code})`;
+        document.getElementById('discount-amount').textContent = '-' + discount.toLocaleString('vi') + 'đ';
+      }
+    }
+    const redeemRow = document.getElementById('redeem-row');
+    if (redeemRow) {
+      redeemRow.style.display = redeemPoints > 0 ? 'flex' : 'none';
+      if (redeemPoints > 0)
+        document.getElementById('redeem-amount').textContent = '-' + redeemPoints.toLocaleString('vi') + 'đ';
+    }
+    document.getElementById('bill-total').textContent = final.toLocaleString('vi') + 'đ';
+  }
+
+  function calcDiscountLocal(promo, total) {
+    if (!promo || !promo.is_active) return 0;
+    if (total < parseFloat(promo.min_order || 0)) return 0;
+    if (promo.type === 'percent') return Math.round(total * parseFloat(promo.value) / 100);
+    return Math.min(parseFloat(promo.value), total);
+  }
+
+  function populatePromoSelect() {
+    const sel = document.getElementById('promo-select');
+    sel.innerHTML = '<option value="">-- Chọn khuyến mãi --</option>';
+    promos.filter(p => p.is_active).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.code;
+      opt.textContent = `${p.name} (${p.code})`;
+      sel.appendChild(opt);
+    });
+  }
+
+  window.applyPromoFromSelect = function() {
+    const code = document.getElementById('promo-select').value;
+    appliedPromo = code ? promos.find(p => p.code === code) : null;
+    document.getElementById('promo-code-input').value = '';
+    showPromoResult(appliedPromo);
+    updateTotalDisplay();
+  };
+
+  window.applyPromoCode = async function() {
+    const code = document.getElementById('promo-code-input').value.trim().toUpperCase();
+    if (!code) return;
+    try {
+      const promo = await apiGetPromotionByCode(code);
+      appliedPromo = promo;
+      document.getElementById('promo-select').value = '';
+      showPromoResult(appliedPromo);
+    } catch {
+      const el = document.getElementById('promo-result');
+      el.style.display = 'block';
+      el.style.color   = 'var(--red)';
+      el.textContent   = 'Mã khuyến mãi không hợp lệ hoặc đã hết hạn.';
+      appliedPromo = null;
+    }
+    updateTotalDisplay();
+  };
+
+  function showPromoResult(promo) {
+    const el = document.getElementById('promo-result');
+    if (!promo) { el.style.display = 'none'; return; }
+    const raw      = Object.values(bill).reduce((s, i) => s + i.price * i.qty, 0);
+    const discount = calcDiscountLocal(promo, raw);
+    el.style.display = 'block';
+    if (discount === 0) {
+      el.style.color = 'var(--orange)';
+      el.innerHTML   = `⚠ Đơn chưa đạt tối thiểu ${parseFloat(promo.min_order||0).toLocaleString('vi')}đ`;
+    } else {
+      el.style.color = 'var(--green)';
+      el.innerHTML   = `✓ Áp dụng <strong>${promo.code}</strong> — Giảm ${discount.toLocaleString('vi')}đ`;
+    }
+  }
+
+  window.lookupMember = async function() {
+    const phone = document.getElementById('member-phone-input').value.trim();
+    const el    = document.getElementById('member-result');
+    if (!phone) { showToast('Vui lòng nhập SĐT!', 'warning'); return; }
+    try {
+      const member = await apiGetCustomerByPhone(phone);
+      appliedMember = member;
+      redeemPoints  = 0;
+      const maxRedeem = Math.min(member.total_points || 0, 500000);
+      el.style.display = 'block';
+      el.innerHTML = `
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:13px;font-weight:600">${member.name}</div>
+          <div style="font-size:11px;color:var(--muted)">${member.phone}</div>
+          <div style="font-size:12px;color:var(--muted);margin:6px 0">
+            Điểm: <strong style="color:var(--gold-deep)">${(member.total_points||0).toLocaleString('vi')} điểm</strong>
+          </div>
+          ${maxRedeem > 0 ? `
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="font-size:12px">Dùng điểm:</span>
+              <input type="number" id="redeem-input" value="0" min="0" max="${maxRedeem}"
+                     style="width:100px;padding:5px 8px;border:1px solid var(--border);
+                            border-radius:6px;font-size:13px;background:var(--bg);color:var(--text)"
+                     oninput="onRedeemChange(this.value,${maxRedeem})"/>
+              <button class="btn btn-sm btn-ghost" onclick="useMaxRedeem(${maxRedeem})">Tối đa</button>
+            </div>
+          ` : ''}
+          <button class="btn btn-sm btn-ghost" style="margin-top:8px" onclick="clearMember()">✕ Bỏ</button>
+        </div>`;
+      updateTotalDisplay();
+    } catch {
+      el.style.display = 'block';
+      el.innerHTML = `
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:10px 12px;">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:8px">SĐT chưa đăng ký thành viên.</div>
+          <button class="btn btn-sm btn-primary" onclick="createMemberInline('${phone}')">+ Đăng ký</button>
+        </div>`;
+      appliedMember = null; redeemPoints = 0;
+      updateTotalDisplay();
+    }
+  };
+
+  window.createMemberInline = async function(phone) {
+    const name = prompt('Họ và tên khách hàng:');
+    if (!name) return;
+    try {
+      const member = await apiCreateCustomer({ name: name.trim(), phone });
+      showToast('Đã đăng ký thành viên mới!', 'success');
+      document.getElementById('member-phone-input').value = phone;
+      appliedMember = member;
+      lookupMember();
+    } catch (err) { showToast('Lỗi: ' + err.message, 'error'); }
+  };
+
+  window.onRedeemChange = function(val, max) {
+    redeemPoints = Math.max(0, Math.min(parseInt(val) || 0, max));
+    updateTotalDisplay();
+  };
+
+  window.useMaxRedeem = function(max) {
+    redeemPoints = max;
+    const inp = document.getElementById('redeem-input');
+    if (inp) inp.value = max;
+    updateTotalDisplay();
+  };
+
+  window.clearMember = function() {
+    appliedMember = null; redeemPoints = 0;
+    document.getElementById('member-phone-input').value = '';
+    document.getElementById('member-result').style.display = 'none';
+    updateTotalDisplay();
+  };
+
+  window.submitCreate = async function() {
+    if (!Object.keys(bill).length) return showToast('Chưa có món nào!', 'error');
+    const body = {
+      order_type: orderType,
+      items: Object.entries(bill).map(([dish_id, item]) => ({ dish_id, quantity: item.qty })),
+    };
+    if (orderType === 'dine-in') {
+      const tid    = document.getElementById('sel-table').value;
+      const guests = parseInt(document.getElementById('sel-guests').value) || 0;
+      if (!tid)    return showToast('Vui lòng chọn bàn!', 'error');
+      if (!guests) return showToast('Vui lòng nhập số khách!', 'error');
+      body.table_id = tid;
+    } else {
+      const name  = document.getElementById('take-name').value.trim();
+      const phone = document.getElementById('take-phone').value.trim();
+      if (!name) return showToast('Vui lòng nhập tên khách!', 'error');
+      body.customer_name  = name;
+      body.customer_phone = phone || undefined;
+    }
+    if (appliedPromo)  body.promo_code    = appliedPromo.code;
+    if (appliedMember) body.customer_id   = appliedMember.customer_id;
+    if (redeemPoints)  body.redeem_points = redeemPoints;
+    try {
+      const newOrder = await apiCreateOrder(body);
+      orders.unshift(newOrder);
+      showToast('Tạo đơn thành công!', 'success');
+      bill = {};
+      showList();
+    } catch (err) { showToast('Lỗi: ' + err.message, 'error'); }
+  };
+
+  // ══ DETAIL VIEW ══
+  window.showDetail = async function(orderId) {
+    currentOrderId = orderId;
+    serveSelected  = {};
+    const order = await apiGetOrder(orderId);
+    const idx   = orders.findIndex(o => o.order_id === orderId);
+    if (idx >= 0) orders[idx] = order;
+    show('view-detail');
+    renderDetail();
+  };
+
+  function renderDetail() {
+    const order = orders.find(o => o.order_id === currentOrderId);
+    if (!order) return;
+    const tbl     = tables.find(t => t.table_id === order.table_id);
+    const total   = parseFloat(order.total_amount) || 0;
+    const isDine  = order.order_type === 'dine-in';
+    const items   = order.order_items || [];
+    const served  = items.filter(i => i.is_served).length;
+    const allDone = served === items.length;
+    const isPending = ['Pending','Serving'].includes(order.status);
+
+    document.getElementById('detail-id').textContent = `Đơn #${order.order_id.slice(0,8)}`;
+    const time = new Date(order.order_time).toLocaleString('vi');
+    document.getElementById('detail-meta').innerHTML = `
+      <span class="badge ${STATUS_BADGE[order.status]}">${STATUS_LABEL[order.status]}</span>
+      ${isDine
+        ? `<span class="badge badge-red" style="font-size:10px">🍽 Bàn ${tbl?.table_number || '?'}</span>`
+        : `<span class="badge badge-gold" style="font-size:10px">🥡 ${order.customer_name || 'Mang về'}</span>`}
+      <span style="font-size:12px;color:var(--muted)">${time}</span>
+      <span style="font-size:12px;color:var(--muted)">NV: ${order.employee?.name || '?'}</span>
+    `;
+
+    let actions = '';
+    if (isPending) {
+      actions += `<button class="btn btn-danger" onclick="cancelOrder('${order.order_id}')">Hủy đơn</button>`;
+      actions += `<button class="btn btn-gold" onclick="showPayment()">💳 Thanh toán</button>`;
+    }
+    document.getElementById('detail-actions').innerHTML = actions;
+
+    document.getElementById('detail-items').innerHTML = items.map(item => {
+      const isServed  = item.is_served;
+      const isChecked = serveSelected[item.order_item_id] !== undefined;
+      const dishName  = item.dish?.dish_name || item.dish_id;
+      const subtotal  = parseFloat(item.subtotal) || 0;
+      return `
+        <div class="item-row ${isServed ? 'served' : ''}">
+          ${isPending && !isServed ? `
+            <div class="item-check ${isChecked ? 'checked' : ''}"
+                 onclick="toggleServe('${item.order_item_id}', ${item.quantity})">
+              ${isChecked ? '✓' : ''}
+            </div>
+          ` : `
+            <div class="item-check ${isServed ? 'checked' : ''}" style="cursor:default">
+              ${isServed ? '✓' : ''}
+            </div>
+          `}
+          <div class="item-name">${dishName}</div>
+          <div class="item-qty">
+            ${isServed
+              ? `<span class="badge badge-green" style="font-size:10px">Đã phục vụ</span>`
+              : `<span style="color:var(--muted)">x${item.quantity}</span>`}
+          </div>
+          ${isChecked && !isServed ? `
+            <div style="display:flex;align-items:center;gap:6px">
+              <button class="qty-btn" onclick="chgServeQty('${item.order_item_id}',-1,${item.quantity})">−</button>
+              <input type="number" value="${serveSelected[item.order_item_id]}"
+                     min="1" max="${item.quantity}" class="serve-qty-input"
+                     onchange="setServeQty('${item.order_item_id}',this.value,${item.quantity})"/>
+              <span style="font-size:11px;color:var(--muted)">/${item.quantity}</span>
+              <button class="qty-btn" onclick="chgServeQty('${item.order_item_id}',1,${item.quantity})">+</button>
+            </div>
+          ` : `<div class="item-price">${subtotal.toLocaleString('vi')}đ</div>`}
+        </div>
+      `;
+    }).join('');
+
+    const selectedCount = Object.keys(serveSelected).length;
+    const serveBar = document.getElementById('serve-bar');
+    if (isPending && selectedCount > 0) {
+      serveBar.style.display = 'flex';
+      document.getElementById('serve-bar-label').textContent =
+        `Đã chọn ${selectedCount} món để xác nhận phục vụ`;
+    } else {
+      serveBar.style.display = 'none';
+    }
+    document.getElementById('serve-progress').textContent = `${served}/${items.length} món đã phục vụ`;
+
+    const promoEvent = order.events?.[0];
+    document.getElementById('detail-summary').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+        ${isDine ? `
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Bàn</span>
+            <strong>Bàn ${tbl?.table_number || '?'}</strong>
+          </div>
+        ` : `
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--muted)">Khách</span>
+            <strong>${order.customer_name || 'Khách lẻ'}</strong>
+          </div>
+        `}
+        <div class="vn-divider" style="margin:4px 0"></div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Số món</span>
+          <strong>${items.length} món</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Đã phục vụ</span>
+          <strong style="color:${allDone?'var(--green)':'var(--orange)'}">${served}/${items.length}</strong>
+        </div>
+        ${promoEvent ? `
+          <div style="display:flex;justify-content:space-between;color:var(--green)">
+            <span>Khuyến mãi</span>
+            <span>-${parseFloat(promoEvent.discount_amount).toLocaleString('vi')}đ</span>
+          </div>
+        ` : ''}
+        <div class="vn-divider" style="margin:4px 0"></div>
+        <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700">
+          <span>Tổng cộng</span>
+          <span style="font-family:var(--font-display);color:var(--red)">${total.toLocaleString('vi')}đ</span>
+        </div>
+      </div>
+    `;
+
+    const payBox = document.getElementById('payment-box');
+    payBox.style.display = isPending ? '' : 'none';
+    if (isPending) {
+      document.getElementById('payment-info').innerHTML = `
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700">
+          <span>Số tiền cần thu</span>
+          <span style="color:var(--red)">${total.toLocaleString('vi')}đ</span>
+        </div>
+        ${!allDone ? `<div style="color:var(--orange);font-size:12px;margin-top:6px">
+          ⚠ Còn ${items.length - served} món chưa phục vụ
+        </div>` : ''}
+      `;
+    }
+  }
+
+  window.toggleServe = function(itemId, maxQty) {
+    if (serveSelected[itemId] !== undefined) delete serveSelected[itemId];
+    else serveSelected[itemId] = maxQty;
+    renderDetail();
+  };
+
+  window.chgServeQty = function(itemId, delta, max) {
+    if (serveSelected[itemId] === undefined) return;
+    serveSelected[itemId] = Math.max(1, Math.min(max, serveSelected[itemId] + delta));
+    renderDetail();
+  };
+
+  window.setServeQty = function(itemId, val, max) {
+    serveSelected[itemId] = Math.max(1, Math.min(max, parseInt(val) || 1));
+  };
+
+  window.clearServeSelect = function() {
+    serveSelected = {};
+    renderDetail();
+  };
+
+  window.confirmServe = async function() {
+    const entries = Object.entries(serveSelected);
+    if (!entries.length) return showToast('Chưa chọn món nào!', 'warning');
+    try {
+      for (const [itemId, qty] of entries) {
+        const order = orders.find(o => o.order_id === currentOrderId);
+        const item  = order?.order_items?.find(i => i.order_item_id === itemId);
+        await apiServeItem(currentOrderId, itemId, qty < item?.quantity ? qty : null);
+      }
+      const updated = await apiGetOrder(currentOrderId);
+      const idx = orders.findIndex(o => o.order_id === currentOrderId);
+      if (idx >= 0) orders[idx] = updated;
+      serveSelected = {};
+      showToast(`Đã xác nhận phục vụ ${entries.length} món`, 'success');
+      renderDetail();
+    } catch (err) { showToast('Lỗi: ' + err.message, 'error'); }
+  };
+
+  window.showPayment = function() {
+    document.getElementById('payment-box').scrollIntoView({ behavior: 'smooth' });
+  };
+
+  window.processPayment = async function() {
+    const order   = orders.find(o => o.order_id === currentOrderId);
+    if (!order) return;
+    const items   = order.order_items || [];
+    const served  = items.filter(i => i.is_served).length;
+    const allDone = served === items.length;
+    const total   = parseFloat(order.total_amount) || 0;
+
+    confirmDialog({
+      title: 'Xác nhận thanh toán',
+      body: allDone
+        ? `Xác nhận thanh toán <strong>${total.toLocaleString('vi')}đ</strong>?`
+        : `Còn <strong>${items.length - served} món chưa phục vụ</strong>. Bạn có chắc muốn thanh toán luôn?`,
+      confirmLabel: 'Thanh toán', confirmClass: 'btn-gold',
+      onConfirm: async () => {
+        try {
+          await apiUpdateOrderStatus(currentOrderId, 'Completed');
+          const updated = await apiGetOrder(currentOrderId);
+          const idx = orders.findIndex(o => o.order_id === currentOrderId);
+          if (idx >= 0) orders[idx] = updated;
+          if (updated.table_id) {
+            await apiUpdateTable(updated.table_id, { status: 'Available' });
+            const tIdx = tables.findIndex(t => t.table_id === updated.table_id);
+            if (tIdx >= 0) tables[tIdx].status = 'Available';
+          }
+          showToast('Thanh toán thành công!', 'success');
+          renderDetail();
+          renderList();
+        } catch (err) { showToast('Lỗi: ' + err.message, 'error'); }
+      },
+    });
+  };
+
+  window.cancelOrder = async function(orderId) {
+    const order = orders.find(o => o.order_id === orderId);
+    if (!order) return;
+    const items     = order.order_items || [];
+    const served    = items.filter(i => i.is_served).length;
+    const allServed = served === items.length && items.length > 0;
+
+    if (allServed) {
+      confirmDialog({
+        title: 'Không thể hủy',
+        body: 'Tất cả món đã phục vụ. Vui lòng liên hệ quản lý.',
+        confirmLabel: 'Đã hiểu', confirmClass: 'btn-ghost',
+        onConfirm: () => {},
+      });
+      return;
+    }
+
+    confirmDialog({
+      title: served > 0 ? '⚠ Hủy đơn một phần' : 'Hủy đơn',
+      body: served > 0
+        ? `Có <strong>${served} món đã phục vụ</strong>. Bạn có chắc muốn hủy?`
+        : 'Bạn có chắc muốn hủy đơn này không?',
+      confirmLabel: 'Xác nhận hủy', confirmClass: 'btn-danger',
+      onConfirm: async () => {
+        try {
+          await apiUpdateOrderStatus(orderId, 'Cancelled');
+          const updated = await apiGetOrder(orderId);
+          const idx = orders.findIndex(o => o.order_id === orderId);
+          if (idx >= 0) orders[idx] = updated;
+          showToast('Đã hủy đơn', 'warning');
+          if (document.getElementById('view-detail').style.display !== 'none') renderDetail();
+          renderList();
+        } catch (err) { showToast('Lỗi: ' + err.message, 'error'); }
+      },
+    });
+  };
+
+  function show(viewId) {
+    ['view-list','view-create','view-detail'].forEach(id => {
+      document.getElementById(id).style.display = id === viewId ? '' : 'none';
+    });
+  }
+
+  window.showList = function() {
+    currentOrderId = null;
+    serveSelected  = {};
+    show('view-list');
+    renderList();
+  };
+
+  init();
+</script>
+</body>
+</html>

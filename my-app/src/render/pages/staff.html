@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Nhân viên — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <div class="page-toolbar">
+        <input class="search-input" placeholder="🔍 Tìm nhân viên..."
+               id="staff-search" oninput="renderStaff()"/>
+        <button class="btn btn-primary"
+                onclick="window.location.href='register.html'">
+          + Tạo tài khoản nhân viên
+        </button>
+      </div>
+
+      <div class="card" style="padding:0;overflow:hidden">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nhân viên</th>
+              <th>Tên đăng nhập</th>
+              <th>Vai trò</th>
+              <th>Số điện thoại</th>
+              <th>Ngày tạo</th>
+              <th>Đơn đã tạo</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody id="staff-tbody"></tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireManager } from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
+  import { apiGetEmployees, apiDeleteEmployee } from '../js/api.js';
+
+  const session = requireManager();
+  if (!session) throw new Error();
+
+  renderSidebar('staff');
+  renderHeader({ title: 'Nhân viên', sub: 'Đang tải...', showBack: true, backUrl: 'dashboard.html' });
+
+  const colors = ['#922B21','#0891b2','#b45309','#065f46','#7c3aed','#be123c'];
+  let employees = [];
+
+  async function loadStaff() {
+    try {
+      employees = await apiGetEmployees();
+      renderHeader({ title: 'Nhân viên', sub: `${employees.length} tài khoản`, showBack: true, backUrl: 'dashboard.html' });
+      renderStaff();
+    } catch (err) {
+      showToast('Lỗi tải dữ liệu: ' + err.message, 'error');
+    }
+  }
+
+  window.renderStaff = function() {
+    const q = document.getElementById('staff-search').value.toLowerCase();
+    const filtered = employees.filter(u =>
+      u.name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
+    );
+
+    document.getElementById('staff-tbody').innerHTML = filtered.map((u, i) => {
+      const isCurrentUser = u.employee_id === session.employee_id;
+      const joinDate = u.created_at
+        ? new Date(u.created_at).toLocaleDateString('vi') : '—';
+      return `
+        <tr>
+          <td>
+            <div class="staff-name-cell">
+              <div class="staff-avatar" style="background:${colors[i % colors.length]}">
+                ${u.name[0]}
+              </div>
+              ${u.name}
+              ${isCurrentUser ? '<span class="badge badge-gold" style="font-size:10px">Bạn</span>' : ''}
+            </div>
+          </td>
+          <td style="color:var(--muted);font-family:monospace">${u.username}</td>
+          <td>
+            <span class="badge ${u.role === 'Manager' ? 'badge-red' : 'badge-blue'}">
+              ${u.role === 'Manager' ? 'Quản lý' : 'Nhân viên'}
+            </span>
+          </td>
+          <td style="color:var(--muted)">${u.phone || '—'}</td>
+          <td style="color:var(--muted);font-size:12px">${joinDate}</td>
+          <td><span class="badge badge-muted">${u._count?.orders ?? 0} đơn</span></td>
+          <td>
+            ${!isCurrentUser ? `
+              <button class="btn btn-sm btn-danger"
+                      onclick="deleteUser('${u.employee_id}', '${u.name}')">
+                Xóa
+              </button>
+            ` : '<span style="color:var(--muted);font-size:12px">—</span>'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  };
+
+  window.deleteUser = function(userId, userName) {
+    confirmDialog({
+      title: 'Xóa tài khoản',
+      body: `Bạn có chắc muốn xóa tài khoản <strong>${userName}</strong>?`,
+      confirmLabel: 'Xóa', confirmClass: 'btn-danger',
+      onConfirm: async () => {
+        try {
+          await apiDeleteEmployee(userId);
+          employees = employees.filter(u => u.employee_id !== userId);
+          showToast(`Đã xóa tài khoản ${userName}`, 'success');
+          renderStaff();
+        } catch (err) {
+          showToast('Lỗi: ' + err.message, 'error');
+        }
+      },
+    });
+  };
+
+  loadStaff();
+</script>
+</body>
+</html>

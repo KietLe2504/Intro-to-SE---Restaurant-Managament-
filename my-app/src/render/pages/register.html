@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tạo tài khoản nhân viên — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <div style="max-width:520px;margin:0 auto">
+
+        <div style="background:var(--gold-bg);border:1px solid rgba(212,160,23,0.3);
+                    border-radius:var(--radius);padding:12px 16px;margin-bottom:24px;
+                    font-size:13px;color:var(--gold-deep);display:flex;gap:8px;align-items:center">
+          ★ Tài khoản tạo ra sẽ có quyền <strong>Nhân viên</strong>.
+          Chỉ Quản lý mới có thể thực hiện thao tác này.
+        </div>
+
+        <!-- Form tạo tài khoản -->
+        <div class="card">
+          <div class="card-title">Thông tin tài khoản mới</div>
+
+          <div class="form-group">
+            <label class="form-label">Họ và tên *</label>
+            <input class="form-input" id="reg-name" type="text"
+                   placeholder="Nguyễn Văn A" autocomplete="off"/>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Tên đăng nhập *</label>
+            <input class="form-input" id="reg-username" type="text"
+                   placeholder="nhanvien01" autocomplete="off"/>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">
+              Chỉ dùng chữ thường, số và dấu gạch dưới. Không thay đổi được sau khi tạo.
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Mật khẩu *</label>
+            <input class="form-input" id="reg-password" type="password"
+                   placeholder="Tối thiểu 6 ký tự" autocomplete="new-password"/>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Xác nhận mật khẩu *</label>
+            <input class="form-input" id="reg-confirm" type="password"
+                   placeholder="Nhập lại mật khẩu" autocomplete="new-password"/>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Số điện thoại</label>
+            <input class="form-input" id="reg-phone" type="tel"
+                   placeholder="0901 234 567"/>
+          </div>
+
+          <!-- Error / Success messages -->
+          <div id="reg-error"
+               style="color:var(--red);font-size:13px;margin-bottom:14px;
+                      display:none;padding:10px 14px;background:var(--red-bg);
+                      border-radius:var(--radius)"></div>
+          <div id="reg-success"
+               style="color:var(--green);font-size:13px;margin-bottom:14px;
+                      display:none;padding:10px 14px;background:var(--green-bg);
+                      border-radius:var(--radius)"></div>
+
+          <div style="display:flex;gap:10px">
+            <button class="btn btn-ghost" onclick="window.location.href='staff.html'">
+              ← Quay lại
+            </button>
+            <button class="btn btn-primary" style="flex:1" onclick="handleRegister()">
+              Tạo tài khoản nhân viên
+            </button>
+          </div>
+        </div>
+
+        <!-- Danh sách vừa tạo trong phiên này -->
+        <div id="created-list-wrap" style="display:none;margin-top:20px">
+          <div class="card">
+            <div class="card-title">Đã tạo trong phiên này</div>
+            <div id="created-list"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireManager }                         from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast } from '../js/ui.js';
+  import { apiCreateStaff }                         from '../js/api.js';
+
+  const session = requireManager();
+  if (!session) throw new Error();
+
+  renderSidebar('staff');
+  renderHeader({
+    title: 'Tạo tài khoản nhân viên',
+    sub: 'Quản lý tạo tài khoản cho nhân viên mới',
+    showBack: true, backUrl: 'staff.html',
+  });
+
+  const createdThisSession = [];
+
+  window.handleRegister = async function() {
+    const errEl     = document.getElementById('reg-error');
+    const successEl = document.getElementById('reg-success');
+    errEl.style.display     = 'none';
+    successEl.style.display = 'none';
+
+    const name     = document.getElementById('reg-name').value.trim();
+    const username = document.getElementById('reg-username').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const confirm  = document.getElementById('reg-confirm').value;
+    const phone    = document.getElementById('reg-phone').value.trim();
+
+    if (!name || !username || !password || !confirm) {
+      errEl.textContent = 'Vui lòng điền đầy đủ các trường bắt buộc (*).';
+      errEl.style.display = 'block'; return;
+    }
+    if (password.length < 6) {
+      errEl.textContent = 'Mật khẩu tối thiểu 6 ký tự.';
+      errEl.style.display = 'block'; return;
+    }
+    if (password !== confirm) {
+      errEl.textContent = 'Mật khẩu xác nhận không khớp.';
+      errEl.style.display = 'block'; return;
+    }
+
+    try {
+      await apiCreateStaff(name, username, password, phone);
+      successEl.textContent = `✓ Tạo tài khoản "${name}" (${username}) thành công!`;
+      successEl.style.display = 'block';
+      createdThisSession.push({ name, username });
+      renderCreatedList();
+      ['reg-name','reg-username','reg-password','reg-confirm','reg-phone']
+        .forEach(id => document.getElementById(id).value = '');
+      document.getElementById('reg-name').focus();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    }
+  };
+
+  function renderCreatedList() {
+    if (!createdThisSession.length) return;
+    document.getElementById('created-list-wrap').style.display = '';
+    document.getElementById('created-list').innerHTML =
+      createdThisSession.map(u => `
+        <div style="display:flex;align-items:center;gap:10px;
+                    padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="width:28px;height:28px;border-radius:50%;
+                      background:var(--red);display:flex;align-items:center;
+                      justify-content:center;color:#fff;font-size:12px;font-weight:700">
+            ${u.name[0]}
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:500">${u.name}</div>
+            <div style="font-size:11px;color:var(--muted)">@${u.username}</div>
+          </div>
+          <span class="badge badge-blue" style="margin-left:auto">Nhân viên</span>
+        </div>
+      `).join('');
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleRegister();
+  });
+</script>
+</body>
+</html>

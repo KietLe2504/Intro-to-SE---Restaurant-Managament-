@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Thông tin cá nhân — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <div class="profile-header">
+        <div class="profile-avatar" id="profile-avatar"></div>
+        <div>
+          <div class="profile-name" id="profile-name"></div>
+          <div class="profile-role" id="profile-role"></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+        <!-- Thông tin tài khoản -->
+        <div class="card">
+          <div class="card-title">Thông tin tài khoản</div>
+          <div class="form-group">
+            <label class="form-label">Họ và tên</label>
+            <input class="form-input" id="p-name" type="text"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tên đăng nhập</label>
+            <input class="form-input" id="p-username" type="text" disabled
+                   style="opacity:0.6"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Số điện thoại</label>
+            <input class="form-input" id="p-phone" type="tel"/>
+          </div>
+          <div id="profile-error"
+               style="color:var(--red);font-size:13px;padding:10px;background:var(--red-bg);
+                      border-radius:var(--radius);display:none;margin-bottom:12px"></div>
+          <button class="btn btn-primary" id="save-btn" onclick="saveProfile()">
+            Lưu thay đổi
+          </button>
+        </div>
+
+        <!-- Đổi mật khẩu — placeholder, chưa có API -->
+        <div class="card">
+          <div class="card-title">Đổi mật khẩu</div>
+          <div style="padding:20px 0;color:var(--muted);font-size:13px;text-align:center">
+            Tính năng đổi mật khẩu đang được phát triển.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Thống kê cá nhân -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">Thống kê của tôi</div>
+        <div id="my-stats"
+             style="display:flex;gap:20px;flex-wrap:wrap;color:var(--muted);font-size:13px;padding:8px 0">
+          Đang tải...
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth, getSession, saveSession } from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast } from '../js/ui.js';
+  import { api, apiUpdateEmployee, apiGetOrders } from '../js/api.js';
+
+  const session = requireAuth();
+  if (!session) throw new Error();
+  renderSidebar('profile');
+  renderHeader({ title: 'Thông tin cá nhân', showBack: true, backUrl: 'dashboard.html' });
+
+  let currentUser = null;
+
+  // ── Load thông tin từ API ─────────────────────────────────
+  async function init() {
+    try {
+      // Dùng /api/auth/me để lấy data mới nhất từ DB
+      currentUser = await api.get('/auth/me');
+
+      document.getElementById('profile-avatar').textContent = currentUser.name[0];
+      document.getElementById('profile-name').textContent   = currentUser.name;
+      document.getElementById('profile-role').textContent   =
+        currentUser.role === 'Manager' ? 'Quản lý' : 'Nhân viên';
+      document.getElementById('p-name').value     = currentUser.name;
+      document.getElementById('p-username').value = currentUser.username;
+      document.getElementById('p-phone').value    = currentUser.phone || '';
+
+      loadMyStats();
+    } catch (err) {
+      showToast('Không thể tải thông tin: ' + err.message, 'error');
+    }
+  }
+
+  // ── Thống kê cá nhân ──────────────────────────────────────
+  async function loadMyStats() {
+    try {
+      const orders = await apiGetOrders();
+      const myOrders    = orders.filter(o => o.employee_id === currentUser.employee_id);
+      const paid      = myOrders.filter(o => o.status === 'Completed');  // ← đổi 'paid'
+      const cancelled = myOrders.filter(o => o.status === 'Cancelled');  // ← đổi 'cancelled'
+      const totalRev  = paid.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+
+      document.getElementById('my-stats').innerHTML = [
+        { label: 'Tổng đơn',           value: myOrders.length },
+        { label: 'Đơn đã thanh toán',  value: paid.length },
+        { label: 'Đơn bị hủy',         value: cancelled.length },
+        { label: 'Doanh thu tạo ra',   value: totalRev.toLocaleString('vi') + 'đ' },
+      ].map(s => `
+        <div style="flex:1;min-width:140px;background:var(--surface2);
+                    padding:16px;border-radius:var(--radius)">
+          <div class="stat-label">${s.label}</div>
+          <div style="font-family:var(--font-display);font-size:22px;
+                      font-weight:700;color:var(--red)">${s.value}</div>
+        </div>
+      `).join('');
+    } catch {
+      document.getElementById('my-stats').innerHTML =
+        '<span style="color:var(--muted)">Không thể tải thống kê.</span>';
+    }
+  }
+
+  // ── Lưu thông tin ─────────────────────────────────────────
+  window.saveProfile = async function() {
+    const errEl  = document.getElementById('profile-error');
+    const saveBtn = document.getElementById('save-btn');
+    errEl.style.display = 'none';
+
+    const newName  = document.getElementById('p-name').value.trim();
+    const newPhone = document.getElementById('p-phone').value.trim();
+
+    if (!newName) {
+      errEl.textContent = 'Tên không được để trống!';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Đang lưu...';
+
+    try {
+      const updated = await apiUpdateEmployee(currentUser.employee_id, {
+        name: newName,
+        phone: newPhone || null,
+      });
+
+      // Cập nhật session
+      const s = getSession();
+      s.name  = updated.name;
+      s.phone = updated.phone;
+      saveSession(s);
+
+      currentUser = { ...currentUser, name: updated.name, phone: updated.phone };
+      document.getElementById('profile-name').textContent   = updated.name;
+      document.getElementById('profile-avatar').textContent = updated.name[0];
+
+      showToast('Đã lưu thông tin!', 'success');
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Lưu thay đổi';
+    }
+  };
+
+  init();
+</script>
+</body>
+</html>

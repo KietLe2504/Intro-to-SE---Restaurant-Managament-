@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Doanh thu — RestaurantOS</title>
+  <link rel="stylesheet" href="../styles/variables.css"/>
+  <link rel="stylesheet" href="../styles/layout.css"/>
+  <link rel="stylesheet" href="../styles/components.css"/>
+  <link rel="stylesheet" href="../styles/screens.css"/>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main-area">
+    <header class="top-header" id="top-header"></header>
+    <div class="page-content">
+
+      <!-- Summary -->
+      <div class="revenue-summary" id="rev-summary">
+        <div style="color:var(--muted);padding:20px">Đang tải...</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+        <!-- Top món -->
+        <div class="card">
+          <div class="card-title">Món bán chạy nhất</div>
+          <div id="top-items">
+            <div style="color:var(--muted);text-align:center;padding:20px">Đang tải...</div>
+          </div>
+        </div>
+
+        <!-- Staff performance -->
+        <div class="card">
+          <div class="card-title">Hiệu suất nhân viên</div>
+          <div id="staff-perf">
+            <div style="color:var(--muted);text-align:center;padding:20px">Đang tải...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bảng đơn đã thanh toán -->
+      <div style="margin-top:16px" class="card">
+        <div class="card-title">Tất cả đơn đã thanh toán</div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Mã đơn</th>
+              <th>Bàn</th>
+              <th>Nhân viên</th>
+              <th>Tổng tiền</th>
+              <th>Thời gian</th>
+            </tr>
+          </thead>
+          <tbody id="paid-tbody">
+            <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">
+              Đang tải...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireManager }              from '../js/auth.js';
+  import { renderSidebar, renderHeader, showToast } from '../js/ui.js';
+  import { apiGetOrders, apiGetEmployees } from '../js/api.js';
+
+  const session = requireManager();
+  if (!session) throw new Error();
+  renderSidebar('revenue');
+  renderHeader({
+    title: 'Thống kê doanh thu',
+    sub: 'Dành cho quản lý',
+    showBack: true, backUrl: 'dashboard.html',
+  });
+
+  async function init() {
+    try {
+      // Load song song orders + employees
+      const [allOrders, employees] = await Promise.all([
+        apiGetOrders(),
+        apiGetEmployees(),
+      ]);
+
+      const paid      = allOrders.filter(o => o.status === 'Completed');  // ← đổi 'paid'
+      const cancelled = allOrders.filter(o => o.status === 'Cancelled');  // ← đổi 'cancelled'
+      const totalRev  = paid.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+      const avgOrder  = paid.length ? Math.round(totalRev / paid.length) : 0;
+
+      renderSummary({ paid, cancelled, allOrders, totalRev, avgOrder });
+      renderTopItems(paid);
+      renderStaffPerf(allOrders, paid, employees);
+      renderPaidTable(paid);
+    } catch (err) {
+      showToast('Không thể tải dữ liệu: ' + err.message, 'error');
+    }
+  }
+
+  // ── Summary cards ─────────────────────────────────────────
+  function renderSummary({ paid, cancelled, allOrders, totalRev, avgOrder }) {
+    document.getElementById('rev-summary').innerHTML = [
+      { label: 'Tổng doanh thu',    value: totalRev.toLocaleString('vi') + 'đ', accent: true },
+      { label: 'Đơn đã thanh toán', value: paid.length },
+      { label: 'Giá trị đơn TB',    value: avgOrder.toLocaleString('vi') + 'đ' },
+      { label: 'Đơn bị hủy',        value: cancelled.length },
+      { label: 'Tổng đơn',          value: allOrders.length },
+      {
+        label: 'Tỉ lệ thanh toán',
+        value: allOrders.length
+          ? Math.round(paid.length / allOrders.length * 100) + '%' : '0%',
+        accent: true,
+      },
+    ].map(s => `
+      <div class="stat-card ${s.accent ? 'stat-card-accent' : 'stat-card-gold'}">
+        <div class="stat-label">${s.label}</div>
+        <div class="stat-value" style="font-size:22px">${s.value}</div>
+      </div>
+    `).join('');
+  }
+
+  // ── Top món bán chạy ──────────────────────────────────────
+  // Tính từ order_items nếu có, fallback nếu không include
+  function renderTopItems(paid) {
+    const itemCount = {};
+    paid.forEach(o => {
+      (o.order_items || o.items || []).forEach(i => {
+        const name = i.dish?.dish_name || `Món #${i.dish_id}`;
+        const qty  = i.quantity || 1;
+        itemCount[name] = (itemCount[name] || 0) + qty;
+      });
+    });
+
+    const sorted = Object.entries(itemCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const maxQty = sorted[0]?.[1] || 1;
+
+    document.getElementById('top-items').innerHTML = sorted.length
+      ? sorted.map(([name, qty], i) => `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-size:12px;color:var(--muted);min-width:16px">${i + 1}</span>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500;margin-bottom:3px">${name}</div>
+              <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${Math.round(qty / maxQty * 100)}%;
+                            background:linear-gradient(90deg,var(--red),var(--gold));
+                            border-radius:3px"></div>
+              </div>
+            </div>
+            <span style="font-size:13px;font-weight:600;color:var(--red);min-width:30px">${qty}</span>
+          </div>
+        `).join('')
+      : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có dữ liệu</div>';
+  }
+
+  // ── Staff performance ─────────────────────────────────────
+  function renderStaffPerf(allOrders, paid, employees) {
+    const staffStats = employees.map(e => ({
+      name:    e.name,
+      role:    e.role,
+      total:   allOrders.filter(o => o.employee_id === e.employee_id).length,
+      revenue: paid
+        .filter(o => o.employee_id === e.employee_id)
+        .reduce((s, o) => s + parseFloat(o.total_amount || 0), 0),
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    document.getElementById('staff-perf').innerHTML = staffStats.length
+      ? staffStats.map(s => `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 0;
+                      border-bottom:1px solid var(--border)">
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500">${s.name}</div>
+              <div style="font-size:11px;color:var(--muted)">${s.total} đơn · ${s.role}</div>
+            </div>
+            <div style="font-family:var(--font-display);font-weight:700;
+                        color:var(--red);font-size:14px">
+              ${s.revenue.toLocaleString('vi')}đ
+            </div>
+          </div>
+        `).join('')
+      : '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có dữ liệu</div>';
+  }
+
+  // ── Bảng đơn đã thanh toán ────────────────────────────────
+  function renderPaidTable(paid) {
+    document.getElementById('paid-tbody').innerHTML = paid.length
+      ? paid.map(o => `
+          <tr>
+            <td style="font-family:var(--font-display);color:var(--red);font-weight:700">
+              #${o.order_id.slice(-6).toUpperCase()}
+            </td>
+            <td>${o.table?.table_number ? 'Bàn ' + o.table.table_number : (o.table_id || '—')}</td>
+            <td style="color:var(--muted)">${o.employee?.name || '—'}</td>
+            <td style="font-weight:600">${(o.total_amount || 0).toLocaleString('vi')}đ</td>
+            <td style="color:var(--muted);font-size:12px">
+              ${new Date(o.order_time || o.created_at).toLocaleString('vi')}
+            </td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Chưa có đơn thanh toán</td></tr>';
+  }
+
+  init();
+</script>
+</body>
+</html>

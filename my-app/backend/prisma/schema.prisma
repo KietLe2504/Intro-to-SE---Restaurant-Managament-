@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model Employee {
+  employee_id String   @id @default(uuid())
+  name        String
+  role        String   // "Staff" | "Manager"
+  phone       String?
+  username    String   @unique
+  password_hash String
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  orders      Order[]
+}
+
+model Table {
+  table_id     String   @id @default(uuid())
+  table_number Int      @unique
+  capacity     Int
+  status       String   @default("Available") // "Available" | "Occupied"
+  location     String?
+  reserved_at   DateTime?  
+  reserved_name String?    
+  reserved_phone String?  
+  reserved_guests Int?     
+  orders       Order[]
+}
+
+model Dish {
+  dish_id     String      @id @default(uuid())
+  dish_name   String
+  category    String      // "Khai vi" | "Mon chinh" | "Trang mieng" | "Do uong"
+  price       Decimal     @db.Decimal(10, 2)
+  is_available Boolean    @default(true)
+  description String?
+  order_items OrderItem[]
+  image_url    String?  
+}
+
+model Customer {
+  customer_id   String      @id @default(uuid())
+  name          String
+  phone         String      @unique
+  email         String?
+  total_points  Int         @default(0)
+  total_spent   Decimal     @default(0) @db.Decimal(12, 2)
+  created_at    DateTime    @default(now())
+  membership_id String?
+  membership    Membership? @relation(fields: [membership_id], references: [membership_id])
+  orders        Order[]
+}
+
+model Membership {
+  membership_id       String     @id @default(uuid())
+  level               String     // "Bronze" | "Silver" | "Gold" | "Diamond"
+  min_spend           Decimal    @db.Decimal(12, 2)
+  point_rate          Decimal    @db.Decimal(5, 2) // % tích điểm
+  benefit_description String?
+  customers           Customer[]
+}
+
+model Order {
+  order_id       String       @id @default(uuid())
+  order_time     DateTime     @default(now())
+  status         String       @default("Pending") // "Pending" | "Serving" | "Completed" | "Cancelled"
+  total_amount   Decimal      @default(0) @db.Decimal(12, 2)
+  table_id       String?
+  employee_id    String
+  customer_id    String?
+  customer_name  String?
+  customer_phone String?
+  notes          String?
+  order_type     String       @default("dine-in") // "dine-in" | "take-away"
+
+  table       Table?       @relation(fields: [table_id], references: [table_id])
+  employee    Employee     @relation(fields: [employee_id], references: [employee_id])
+  customer    Customer?    @relation(fields: [customer_id], references: [customer_id])
+  order_items OrderItem[]
+  events      OrderEvent[]
+}
+
+model OrderItem {
+  order_item_id String  @id @default(uuid())
+  order_id      String
+  dish_id       String
+  quantity      Int
+  unit_price    Decimal @db.Decimal(10, 2) // giá tại thời điểm gọi
+  subtotal      Decimal @db.Decimal(12, 2)
+  is_served     Boolean @default(false)
+
+  order Order @relation(fields: [order_id], references: [order_id])
+  dish  Dish  @relation(fields: [dish_id], references: [dish_id])
+}
+
+model EventPromotion {
+  event_id    String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  event_type  String       // "Discount" | "Promotion"
+  type        String       // "percent" | "fixed"
+  value       Decimal      @db.Decimal(10, 2)
+  min_order   Decimal      @default(0) @db.Decimal(12, 2)
+  description String?
+  start_date  DateTime?
+  end_date    DateTime?
+  is_active   Boolean      @default(true)
+  orders      OrderEvent[]
+}
+
+model OrderEvent {
+  order_id        String
+  event_id        String
+  discount_amount Decimal @db.Decimal(12, 2)
+
+  order Order          @relation(fields: [order_id], references: [order_id])
+  event EventPromotion @relation(fields: [event_id], references: [event_id])
+
+  @@id([order_id, event_id])
+}
