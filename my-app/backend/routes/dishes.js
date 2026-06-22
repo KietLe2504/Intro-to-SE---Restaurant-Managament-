@@ -34,7 +34,7 @@ router.use(authMiddleware)
 router.get('/', async (req, res) => {
   try {
     const { category, available } = req.query
-    const where = {}
+    const where = { is_deleted: false }  
     if (category)  where.category     = category
     if (available) where.is_available = available === 'true'
 
@@ -122,11 +122,10 @@ router.delete('/:id', requireManager, async (req, res) => {
     await prisma.dish.delete({ where: { dish_id: req.params.id } })
     res.json({ message: 'Đã xóa món.' })
   } catch (err) {
-    // Nếu món đã có trong order thì không xóa được — ẩn đi thay vì xóa
     if (err.code === 'P2003') {
       await prisma.dish.update({
         where: { dish_id: req.params.id },
-        data:  { is_available: false },
+        data:  { is_deleted: true },  // 👈 đổi từ is_available thành is_deleted
       })
       return res.json({ message: 'Món đã có trong đơn hàng, đã ẩn thay vì xóa.' })
     }

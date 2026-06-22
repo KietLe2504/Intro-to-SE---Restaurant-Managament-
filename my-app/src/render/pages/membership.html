@@ -18,6 +18,7 @@
     .tier-silver  { background: rgba(168,169,173,0.2); color: #666; }
     .tier-gold    { background: rgba(212,160,23,0.2);  color: var(--gold-deep); }
     .tier-diamond { background: rgba(96,165,250,0.2);  color: var(--blue); }
+    .tier-none    { background: rgba(156,128,112,0.15); color: var(--muted); }
 
     .progress-bar {
       height: 6px; background: var(--surface2);
@@ -28,6 +29,15 @@
       background: linear-gradient(90deg, var(--red), var(--gold));
       transition: width 0.4s ease;
     }
+
+    .tier-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px; border: 1px solid var(--border);
+      border-radius: var(--radius); margin-bottom: 8px;
+    }
+    .tier-row-info { flex: 1; }
+    .tier-row-name { font-size: 14px; font-weight: 600; }
+    .tier-row-detail { font-size: 12px; color: var(--muted); margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -42,11 +52,13 @@
         <div class="page-toolbar">
           <input class="search-input" placeholder="🔍 Tìm theo tên hoặc SĐT..."
                  id="member-search" oninput="renderList()"/>
-          <div class="filter-group">
-            <div class="filter-chip active" data-tf="all" onclick="setTierFilter('all')">Tất cả</div>
-            <!-- filter chips được render động theo tiers từ API -->
-            <div id="tier-filter-chips"></div>
-          </div>
+          <select class="form-select" id="tier-filter-select" style="width:160px" onchange="onTierFilterChange()">
+            <option value="all">Tất cả hạng</option>
+          </select>
+          <button class="btn btn-ghost" id="manage-tiers-btn" style="display:none"
+                  onclick="openTierManageModal()">Quản lý hạng</button>
+          <button class="btn btn-ghost" id="recalc-btn" style="display:none"
+                  onclick="recalculateTiers()">Cập nhật hạng</button>
           <button class="btn btn-primary" onclick="openCreateModal()">+ Đăng ký thành viên</button>
         </div>
 
@@ -130,32 +142,269 @@
   </div>
 </div>
 
+<!-- Modal điều chỉnh điểm -->
+<div class="modal-backdrop" id="adjust-points-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Điều chỉnh điểm</div>
+      <button class="modal-close" onclick="closeAdjustPointsModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px" id="adjust-points-info"></div>
+      <div class="form-group">
+        <label class="form-label">Số điểm điều chỉnh</label>
+        <input class="form-input" id="adjust-points-input" type="number"
+               placeholder="Số dương để cộng, số âm để trừ. VD: 500 hoặc -200"/>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Nhập số dương để cộng điểm, số âm để trừ điểm.
+        </div>
+      </div>
+      <div id="adjust-points-error"
+           style="color:var(--red);font-size:13px;padding:10px;background:var(--red-bg);
+                  border-radius:var(--radius);display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeAdjustPointsModal()">Hủy</button>
+      <button class="btn btn-primary" id="adjust-points-save-btn" onclick="saveAdjustPoints()">Xác nhận</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal quản lý hạng thành viên -->
+<div class="modal-backdrop" id="tier-manage-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <div class="modal-title">Quản lý hạng thành viên</div>
+      <button class="modal-close" onclick="closeTierManageModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <button class="btn btn-primary btn-sm" style="margin-bottom:14px"
+              onclick="openTierFormModal()">+ Thêm hạng mới</button>
+      <div id="tier-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeTierManageModal()">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal tạo/sửa 1 tier -->
+<div class="modal-backdrop" id="tier-form-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="tier-form-title">Thêm hạng mới</div>
+      <button class="modal-close" onclick="closeTierFormModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Tên hạng *</label>
+        <input class="form-input" id="tf-level" placeholder="VD: Platinum"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Chi tiêu tối thiểu (đ) *</label>
+        <input class="form-input" id="tf-min-spend" type="number" min="0" placeholder="5000000"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tỉ lệ tích điểm (%) *</label>
+        <input class="form-input" id="tf-point-rate" type="number" min="0" max="100" placeholder="3"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Mô tả quyền lợi</label>
+        <input class="form-input" id="tf-benefit" placeholder="VD: Tích lũy 3% giá trị đơn"/>
+      </div>
+      <div id="tier-form-error"
+           style="color:var(--red);font-size:13px;padding:10px;background:var(--red-bg);
+                  border-radius:var(--radius);display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeTierFormModal()">Hủy</button>
+      <button class="btn btn-primary" id="tier-form-save-btn" onclick="saveTier()">Lưu</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
   import { requireAuth } from '../js/auth.js';
   import { renderSidebar, renderHeader, showToast, confirmDialog } from '../js/ui.js';
   import {
     apiGetCustomers, apiGetCustomer,
     apiCreateCustomer, apiUpdateCustomerPoints,
-    apiGetMemberships,
+    apiGetMemberships, apiCreateMembership,
+    apiUpdateMembership, apiDeleteMembership, apiRecalculateTiers,
   } from '../js/api.js';
 
   const session = requireAuth();
   if (!session) throw new Error();
   renderSidebar('membership');
 
-  // ── State ─────────────────────────────────────────────────
-  let allCustomers  = [];
-  let allTiers      = [];   // từ /api/memberships
-  let tierFilter    = 'all';
-  let currentId     = null;
+  if (session.role === 'Manager') {
+    document.getElementById('manage-tiers-btn').style.display = '';
+    document.getElementById('recalc-btn').style.display = '';
+  }
 
-  // Map level → CSS class
+  // ── State ─────────────────────────────────────────────────
+  let allCustomers   = [];
+  let allTiers       = [];   // từ /api/memberships
+  let tierFilter     = 'all';
+  let currentId      = null;
+  let editingTierId  = null;
+  let adjustingCustomerId = null;
+
+  // Map level (tiếng Việt thực tế trong DB) → CSS class / badge
   const TIER_CLASS = {
-    Bronze: 'tier-bronze', Silver: 'tier-silver',
-    Gold: 'tier-gold', Diamond: 'tier-diamond',
+    'Đồng':      'tier-bronze',
+    'Bạc':       'tier-silver',
+    'Vàng':      'tier-gold',
+    'Kim Cương': 'tier-diamond',
   };
   const TIER_BADGE = {
-    Bronze: '🥉', Silver: '🥈', Gold: '🥇', Diamond: '💎',
+    'Đồng':      '🥉',
+    'Bạc':       '🥈',
+    'Vàng':      '🥇',
+    'Kim Cương': '💎',
+  };
+
+  // ── Recalculate tiers (Manager) ──
+  window.recalculateTiers = async function() {
+    confirmDialog({
+      title: 'Cập nhật hạng thành viên',
+      body: 'Hệ thống sẽ tính lại tổng chi tiêu và hạng cho tất cả khách hàng dựa trên các đơn đã thanh toán. Tiếp tục?',
+      confirmLabel: 'Cập nhật', confirmClass: 'btn-primary',
+      onConfirm: async () => {
+        try {
+          const result = await apiRecalculateTiers();
+          showToast(result.message, 'success');
+          allCustomers = await apiGetCustomers();
+          renderStats();
+          renderList();
+        } catch (err) {
+          showToast('Lỗi: ' + err.message, 'error');
+        }
+      },
+    });
+  };
+
+  // ── Tier management modal ──
+  window.openTierManageModal = function() {
+    renderTierList();
+    document.getElementById('tier-manage-modal').classList.add('open');
+  };
+
+  window.closeTierManageModal = function() {
+    document.getElementById('tier-manage-modal').classList.remove('open');
+  };
+
+  function renderTierList() {
+    document.getElementById('tier-list').innerHTML = allTiers.map(t => `
+      <div class="tier-row">
+        <span style="font-size:20px">${TIER_BADGE[t.level] || '🏅'}</span>
+        <div class="tier-row-info">
+          <div class="tier-row-name">${t.level}</div>
+          <div class="tier-row-detail">
+            Chi tiêu tối thiểu: ${parseFloat(t.min_spend).toLocaleString('vi')}đ ·
+            Tích điểm: ${parseFloat(t.point_rate).toFixed(0)}% ·
+            ${t._count?.customers ?? 0} khách hàng
+          </div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="openTierFormModal('${t.membership_id}')">Sửa</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteTier('${t.membership_id}', '${t.level}')">Xóa</button>
+      </div>
+    `).join('') || '<div style="color:var(--muted);text-align:center;padding:20px">Chưa có hạng nào</div>';
+  }
+
+  // ── Tier form modal (tạo/sửa) ──
+  window.openTierFormModal = function(tierId = null) {
+    editingTierId = tierId;
+    document.getElementById('tier-form-error').style.display = 'none';
+
+    if (tierId) {
+      const t = allTiers.find(t => t.membership_id === tierId);
+      document.getElementById('tier-form-title').textContent = 'Sửa hạng thành viên';
+      document.getElementById('tf-level').value      = t.level;
+      document.getElementById('tf-level').disabled   = true;
+      document.getElementById('tf-min-spend').value  = t.min_spend;
+      document.getElementById('tf-point-rate').value = t.point_rate;
+      document.getElementById('tf-benefit').value    = t.benefit_description || '';
+    } else {
+      document.getElementById('tier-form-title').textContent = 'Thêm hạng mới';
+      document.getElementById('tf-level').value      = '';
+      document.getElementById('tf-level').disabled   = false;
+      document.getElementById('tf-min-spend').value  = '';
+      document.getElementById('tf-point-rate').value = '';
+      document.getElementById('tf-benefit').value    = '';
+    }
+
+    document.getElementById('tier-form-modal').classList.add('open');
+  };
+
+  window.closeTierFormModal = function() {
+    document.getElementById('tier-form-modal').classList.remove('open');
+    editingTierId = null;
+  };
+
+  window.saveTier = async function() {
+    const errEl = document.getElementById('tier-form-error');
+    errEl.style.display = 'none';
+
+    const level      = document.getElementById('tf-level').value.trim();
+    const min_spend  = parseFloat(document.getElementById('tf-min-spend').value);
+    const point_rate = parseFloat(document.getElementById('tf-point-rate').value);
+    const benefit    = document.getElementById('tf-benefit').value.trim();
+
+    if (!editingTierId && !level) {
+      errEl.textContent = 'Vui lòng nhập tên hạng.'; errEl.style.display = 'block'; return;
+    }
+    if (isNaN(min_spend) || min_spend < 0) {
+      errEl.textContent = 'Chi tiêu tối thiểu không hợp lệ.'; errEl.style.display = 'block'; return;
+    }
+    if (isNaN(point_rate) || point_rate < 0) {
+      errEl.textContent = 'Tỉ lệ tích điểm không hợp lệ.'; errEl.style.display = 'block'; return;
+    }
+
+    try {
+      if (editingTierId) {
+        const updated = await apiUpdateMembership(editingTierId, {
+          min_spend, point_rate, benefit_description: benefit || null,
+        });
+        const idx = allTiers.findIndex(t => t.membership_id === editingTierId);
+        if (idx >= 0) allTiers[idx] = { ...allTiers[idx], ...updated };
+        showToast('Đã cập nhật hạng thành viên!', 'success');
+      } else {
+        const created = await apiCreateMembership({
+          level, min_spend, point_rate, benefit_description: benefit || null,
+        });
+        allTiers.push(created);
+        allTiers.sort((a, b) => a.min_spend - b.min_spend);
+        showToast('Đã thêm hạng mới!', 'success');
+      }
+      closeTierFormModal();
+      renderTierList();
+      renderTierFilterChips();
+      renderStats();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    }
+  };
+
+  window.deleteTier = function(tierId, level) {
+    confirmDialog({
+      title: 'Xóa hạng thành viên',
+      body: `Bạn có chắc muốn xóa hạng <strong>${level}</strong>?`,
+      confirmLabel: 'Xóa', confirmClass: 'btn-danger',
+      onConfirm: async () => {
+        try {
+          await apiDeleteMembership(tierId);
+          allTiers = allTiers.filter(t => t.membership_id !== tierId);
+          showToast('Đã xóa hạng thành viên', 'success');
+          renderTierList();
+          renderTierFilterChips();
+          renderStats();
+        } catch (err) {
+          showToast('Lỗi: ' + err.message, 'error');
+        }
+      },
+    });
   };
 
   // ── Load data ─────────────────────────────────────────────
@@ -178,15 +427,19 @@
     }
   }
 
-  // ── Tier filter chips (dynamic) ───────────────────────────
+  // ── Tier filter dropdown ───────────────────────────────────
   function renderTierFilterChips() {
-    document.getElementById('tier-filter-chips').innerHTML = allTiers.map(t => `
-      <div class="filter-chip" data-tf="${t.level}"
-           onclick="setTierFilter('${t.level}')">
-        ${TIER_BADGE[t.level] || ''} ${t.level}
-      </div>
-    `).join('');
+    const sel = document.getElementById('tier-filter-select');
+    sel.innerHTML = '<option value="all">Tất cả hạng</option>' +
+      allTiers.map(t => `
+        <option value="${t.level}">${TIER_BADGE[t.level] || ''} ${t.level}</option>
+      `).join('');
   }
+
+  window.onTierFilterChange = function() {
+    tierFilter = document.getElementById('tier-filter-select').value;
+    renderList();
+  };
 
   // ── Stats ─────────────────────────────────────────────────
   function renderStats() {
@@ -196,19 +449,11 @@
         <div class="stat-card stat-card-gold">
           <div class="stat-label">${TIER_BADGE[t.level] || ''} ${t.level}</div>
           <div class="stat-value" style="font-size:24px">${count}</div>
-          <div class="stat-delta delta-muted">Tích lũy ${(t.point_rate * 100).toFixed(0)}%</div>
+          <div class="stat-delta delta-muted">Tích lũy ${parseFloat(t.point_rate).toFixed(0)}%</div>
         </div>
       `;
     }).join('');
   }
-
-  // ── Filter ────────────────────────────────────────────────
-  window.setTierFilter = function(tf) {
-    tierFilter = tf;
-    document.querySelectorAll('[data-tf]').forEach(c =>
-      c.classList.toggle('active', c.dataset.tf === tf));
-    renderList();
-  };
 
   // ── Render list ───────────────────────────────────────────
   window.renderList = function() {
@@ -219,10 +464,10 @@
     });
 
     document.getElementById('member-tbody').innerHTML = list.map(c => {
-      const tier = c.membership;
-      const tierClass = tier ? (TIER_CLASS[tier.level] || 'tier-bronze') : 'tier-bronze';
-      const tierBadge = tier ? (TIER_BADGE[tier.level] || '') : '🥉';
-      const tierLabel = tier?.level || 'Bronze';
+      const tier      = c.membership;
+      const tierClass = tier ? (TIER_CLASS[tier.level] || 'tier-none') : 'tier-none';
+      const tierBadge = tier ? (TIER_BADGE[tier.level] || '') : '';
+      const tierLabel = tier?.level || 'Chưa có hạng';
       return `
         <tr style="cursor:pointer" onclick="showDetail('${c.customer_id}')">
           <td style="font-weight:500">${c.name}</td>
@@ -236,7 +481,7 @@
             ${(c.total_points || 0).toLocaleString('vi')} điểm
           </td>
           <td>
-            <span class="badge badge-muted">${c.orders?.length ?? '—'}</span>
+            <span class="badge badge-muted">${c._count?.orders ?? 0}</span>
           </td>
           <td style="color:var(--muted);font-size:12px">
             ${c.created_at ? new Date(c.created_at).toLocaleDateString('vi') : '—'}
@@ -265,19 +510,16 @@
     try {
       const c = await apiGetCustomer(customerId);
 
-      const tier     = c.membership;
-      const tierClass = tier ? (TIER_CLASS[tier.level] || 'tier-bronze') : 'tier-bronze';
-      const tierBadge = tier ? (TIER_BADGE[tier.level] || '🥉') : '🥉';
-      const tierLabel = tier?.level || 'Bronze';
+      const tier      = c.membership;
+      const tierClass = tier ? (TIER_CLASS[tier.level] || 'tier-none') : 'tier-none';
+      const tierBadge = tier ? (TIER_BADGE[tier.level] || '') : '';
+      const tierLabel = tier?.level || 'Chưa có hạng';
 
-      // Tính progress lên tier tiếp theo
       const tierIdx   = allTiers.findIndex(t => t.membership_id === tier?.membership_id);
       const nextTier  = allTiers[tierIdx + 1] || null;
-      const curMin    = tier?.min_spend || 0;
-      const nextMin   = nextTier?.min_spend || null;
-      // Dùng total_points làm proxy vì API không trả total_spend
-      // Nếu có total_amount từ orders thì tính lại
-      const totalSpend = c.orders?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0;
+      const curMin    = tier ? parseFloat(tier.min_spend) : 0;
+      const nextMin   = nextTier ? parseFloat(nextTier.min_spend) : null;
+      const totalSpend = c.orders?.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0) || 0;
       const progress   = nextMin
         ? Math.min(100, Math.round((totalSpend - curMin) / (nextMin - curMin) * 100))
         : 100;
@@ -322,18 +564,18 @@
                         color:var(--muted);margin-bottom:4px">
               <span>${tierBadge} ${tierLabel}</span>
               <span>Lên ${TIER_BADGE[nextTier.level] || ''} ${nextTier.level}
-                cần ${nextTier.min_spend.toLocaleString('vi')}đ</span>
+                cần ${parseFloat(nextTier.min_spend).toLocaleString('vi')}đ</span>
             </div>
             <div class="progress-bar">
               <div class="progress-fill" style="width:${Math.max(2, progress)}%"></div>
             </div>
           </div>
-        ` : `
+        ` : tier ? `
           <div style="text-align:center;font-size:13px;color:var(--gold-deep);
                       padding:8px;background:var(--gold-bg);border-radius:var(--radius)">
             💎 Đã đạt hạng cao nhất!
           </div>
-        `}
+        ` : ''}
       `;
 
       // Points card
@@ -346,7 +588,7 @@
           </div>
           <div style="display:flex;justify-content:space-between">
             <span style="color:var(--muted)">Tỉ lệ tích điểm</span>
-            <strong>${tier ? (tier.point_rate * 100).toFixed(0) : 0}% giá trị đơn</strong>
+            <strong>${tier ? parseFloat(tier.point_rate).toFixed(0) : 0}% giá trị đơn</strong>
           </div>
           ${tier?.benefit_description ? `
             <div style="display:flex;justify-content:space-between">
@@ -384,7 +626,7 @@
               </div>
               <div style="text-align:right">
                 <div style="font-size:13px;font-weight:600">
-                  ${(o.total_amount || 0).toLocaleString('vi')}đ
+                  ${parseFloat(o.total_amount || 0).toLocaleString('vi')}đ
                 </div>
                 <span class="badge badge-muted" style="font-size:10px">${o.status}</span>
               </div>
@@ -444,27 +686,45 @@
 
   // ── Điều chỉnh điểm (Manager) ────────────────────────────
   window.adjustPoints = function(customerId, currentPoints, name) {
-    const amount = prompt(
-      `Điều chỉnh điểm cho ${name}\n` +
-      `Nhập số dương để cộng, số âm để trừ:\n` +
-      `(Hiện có: ${currentPoints.toLocaleString('vi')} điểm)`
-    );
-    if (amount === null) return;
-    const delta = parseInt(amount);
-    if (isNaN(delta)) { showToast('Số điểm không hợp lệ', 'error'); return; }
+    adjustingCustomerId = customerId;
+    document.getElementById('adjust-points-info').innerHTML =
+      `Điều chỉnh điểm cho <strong>${name}</strong><br>Hiện có: ${currentPoints.toLocaleString('vi')} điểm`;
+    document.getElementById('adjust-points-input').value = '';
+    document.getElementById('adjust-points-error').style.display = 'none';
+    document.getElementById('adjust-points-modal').classList.add('open');
+  };
 
-    apiUpdateCustomerPoints(customerId, delta)
+  window.closeAdjustPointsModal = function() {
+    document.getElementById('adjust-points-modal').classList.remove('open');
+    adjustingCustomerId = null;
+  };
+
+  window.saveAdjustPoints = function() {
+    const errEl = document.getElementById('adjust-points-error');
+    const input = document.getElementById('adjust-points-input').value;
+    const delta = parseInt(input);
+
+    if (isNaN(delta) || delta === 0) {
+      errEl.textContent = 'Vui lòng nhập số điểm hợp lệ (khác 0).';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    apiUpdateCustomerPoints(adjustingCustomerId, delta)
       .then(updated => {
-        // Cập nhật cache list
-        const idx = allCustomers.findIndex(c => c.customer_id === customerId);
+        const idx = allCustomers.findIndex(c => c.customer_id === adjustingCustomerId);
         if (idx !== -1) allCustomers[idx].total_points = updated.total_points;
         showToast(
           `Đã ${delta >= 0 ? 'cộng' : 'trừ'} ${Math.abs(delta).toLocaleString('vi')} điểm`,
           'success'
         );
-        showDetail(customerId); // re-render detail với data mới
+        closeAdjustPointsModal();
+        showDetail(adjustingCustomerId);
       })
-      .catch(err => showToast('Lỗi: ' + err.message, 'error'));
+      .catch(err => {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      });
   };
 
   // ── Utils ─────────────────────────────────────────────────
@@ -480,6 +740,15 @@
 
   document.getElementById('create-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('create-modal')) closeCreateModal();
+  });
+  document.getElementById('adjust-points-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('adjust-points-modal')) closeAdjustPointsModal();
+  });
+  ['tier-manage-modal', 'tier-form-modal'].forEach(id => {
+    document.getElementById(id).addEventListener('click', e => {
+      if (e.target === document.getElementById(id))
+        document.getElementById(id).classList.remove('open');
+    });
   });
 
   init();

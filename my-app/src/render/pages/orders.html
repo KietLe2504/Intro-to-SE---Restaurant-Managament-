@@ -326,7 +326,7 @@
             </div>
             <div class="payment-box" id="payment-box" style="display:none">
               <div style="font-family:var(--font-display);font-size:15px;
-                          font-weight:700;color:var(--gold-deep);margin-bottom:12px">💳 Thanh toán</div>
+                          font-weight:700;color:var(--gold-deep);margin-bottom:12px">Thanh toán</div>
               <div style="font-size:13px;color:var(--text2);margin-bottom:12px" id="payment-info"></div>
               <button class="btn btn-gold btn-full" onclick="processPayment()">Xác nhận thanh toán</button>
             </div>
@@ -854,7 +854,7 @@
     let actions = '';
     if (isPending) {
       actions += `<button class="btn btn-danger" onclick="cancelOrder('${order.order_id}')">Hủy đơn</button>`;
-      actions += `<button class="btn btn-gold" onclick="showPayment()">💳 Thanh toán</button>`;
+      actions += `<button class="btn btn-gold" onclick="showPayment()">Thanh toán</button>`;
     }
     document.getElementById('detail-actions').innerHTML = actions;
 

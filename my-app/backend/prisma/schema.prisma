@@ -39,6 +39,7 @@ model Dish {
   description String?
   order_items OrderItem[]
   image_url    String?  
+  is_deleted   Boolean  @default(false)
 }
 
 model Customer {

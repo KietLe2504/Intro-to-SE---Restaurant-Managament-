@@ -14,7 +14,10 @@ router.get('/', async (req, res) => {
 
     const customers = await prisma.customer.findMany({
       where,
-      include: { membership: true },
+      include: {
+        membership: true,
+        _count: { select: { orders: true } },  // 👈 thêm dòng này
+      },
       orderBy: { created_at: 'desc' },
     })
     res.json(customers)
@@ -22,7 +25,6 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: 'Lỗi server.' })
   }
 })
-
 // ── GET /api/customers/phone/:phone ───────────────────────
 // Tra cứu theo SĐT (dùng khi tạo đơn)
 router.get('/phone/:phone', async (req, res) => {
@@ -145,6 +147,48 @@ router.patch('/:id/points', async (req, res) => {
     })
     res.json(updated)
   } catch (err) {
+    res.status(500).json({ error: 'Lỗi server.' })
+  }
+})
+
+// ── POST /api/customers/recalculate-tiers ─────────────────
+// Tính lại total_spent và membership cho TẤT CẢ khách hàng (Manager only)
+router.post('/recalculate-tiers', async (req, res) => {
+  if (req.user.role !== 'Manager') {
+    return res.status(403).json({ error: 'Chỉ Manager mới có quyền thực hiện.' })
+  }
+
+  try {
+    const customers = await prisma.customer.findMany()
+    const memberships = await prisma.membership.findMany({
+      orderBy: { min_spend: 'desc' },
+    })
+
+    let updated = 0
+    for (const customer of customers) {
+      // Tính tổng chi tiêu từ các đơn Completed
+      const result = await prisma.order.aggregate({
+        where: { customer_id: customer.customer_id, status: 'Completed' },
+        _sum: { total_amount: true },
+      })
+      const totalSpent = parseFloat(result._sum.total_amount || 0)
+
+      // Tìm tier phù hợp
+      const tier = memberships.find(m => totalSpent >= parseFloat(m.min_spend))
+
+      await prisma.customer.update({
+        where: { customer_id: customer.customer_id },
+        data: {
+          total_spent:   totalSpent,
+          membership_id: tier?.membership_id || null,
+        },
+      })
+      updated++
+    }
+
+    res.json({ message: `Đã cập nhật hạng cho ${updated} khách hàng.` })
+  } catch (err) {
+    console.error(err)
     res.status(500).json({ error: 'Lỗi server.' })
   }
 })

@@ -39,7 +39,7 @@
            style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;
                   padding:10px 14px;background:var(--red-bg);border-radius:var(--radius)">
       </div>
-      <button class="btn btn-primary btn-full" onclick="handleLogin()">Đăng nhập</button>
+      <button class="btn btn-primary btn-full" type="button" onclick="handleLogin()">Đăng nhập</button>
       <div class="vn-divider" style="margin:20px 0 12px"></div>
     </div>
 
@@ -87,7 +87,7 @@
                   padding:10px 14px;background:var(--green-bg);border-radius:var(--radius)">
       </div>
 
-      <button class="btn btn-gold btn-full" onclick="handleRegister()">
+      <button class="btn btn-gold btn-full" type="button" onclick="handleRegister()">
         Tạo tài khoản Quản lý
       </button>
       <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:12px">
@@ -124,6 +124,7 @@
 
   // ── Đăng nhập (Staff + Manager) ──
   window.handleLogin = async function() {
+    //console.log('[Login] handleLogin called'); 
     const username = document.getElementById('login-username').value.trim();
     const password = document.getElementById('login-password').value;
     const errEl    = document.getElementById('login-error');
@@ -133,8 +134,9 @@
       errEl.style.display = 'block';
       return;
     }
-
+    
     const result = await login(username, password);
+    //console.log('[Login] result:', result);
     if (!result.success) {
       errEl.textContent = result.error;
       errEl.style.display = 'block';
@@ -202,6 +204,7 @@
   // ── Enter key ──
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
+    e.preventDefault();
     const activeTab = document.querySelector('.login-tab.active')?.dataset.tab;
     if (activeTab === 'signin') handleLogin();
     else handleRegister();

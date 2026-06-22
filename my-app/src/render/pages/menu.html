@@ -175,8 +175,7 @@
     const q = document.getElementById('menu-search').value.toLowerCase();
     const items = dishes.filter(m =>
       (currentCat === 'all' || m.category === currentCat) &&
-      m.dish_name.toLowerCase().includes(q) &&
-      m.is_available !== false
+      m.dish_name.toLowerCase().includes(q)
     );
 
     document.getElementById('menu-grid').innerHTML = items.map(m => `

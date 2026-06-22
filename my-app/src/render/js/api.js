@@ -45,7 +45,7 @@
      const res = await fetch(`${BASE_URL}${path}`, options)
    
      // Token hết hạn → về login
-     if (res.status === 401) {
+     if (res.status === 401 && path !== '/auth/login') {
        removeToken()
        sessionStorage.removeItem('ros_session')
        window.location.replace('../pages/login.html')
@@ -153,6 +153,9 @@
    export async function apiGetCustomers(params = {}) {
      const q = new URLSearchParams(params).toString()
      return api.get(`/customers${q ? '?' + q : ''}`)
+   }
+   export async function apiRecalculateTiers() {
+     return api.post('/customers/recalculate-tiers')
    }
    
    export async function apiGetCustomerByPhone(phone) {
