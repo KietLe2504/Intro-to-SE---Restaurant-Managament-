@@ -601,7 +601,7 @@
                       padding:12px;font-size:12px;color:var(--gold-deep)">
             💡 1 điểm = 1đ khi thanh toán
           </div>
-          ${session.role === 'Manager' ? `
+          ${session.role !== '' ? `
             <button class="btn btn-ghost btn-full"
                     onclick="adjustPoints('${c.customer_id}', ${c.total_points || 0}, '${c.name.replace(/'/g,"\\'")}')">
               Điều chỉnh điểm

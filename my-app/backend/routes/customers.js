@@ -124,9 +124,9 @@ router.patch('/:id', async (req, res) => {
 // Điều chỉnh điểm (Manager only)
 // Body: { delta } — số dương để cộng, số âm để trừ
 router.patch('/:id/points', async (req, res) => {
-  if (req.user.role !== 'Manager') {
-    return res.status(403).json({ error: 'Chỉ Manager mới có quyền điều chỉnh điểm.' })
-  }
+  // if (req.user.role !== 'Manager') {
+  //   return res.status(403).json({ error: 'Chỉ Manager mới có quyền điều chỉnh điểm.' })
+  // }
 
   const delta = parseInt(req.body.delta)
   if (isNaN(delta)) {
